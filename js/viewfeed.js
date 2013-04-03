@@ -1591,7 +1591,8 @@ function cdmClicked(event, id) {
 				return cdmExpandArticle(id);
 			} else {
 
-				var elem = $("RROW-" + getActiveArticleId());
+				var old_id = getActiveArticleId();
+				var elem = $("RROW-" + old_id);
 
 				if (elem) elem.removeClassName("active");
 
@@ -1605,6 +1606,10 @@ function cdmClicked(event, id) {
 				elem.addClassName("active");
 
 				setActiveArticleId(id);
+				
+				if ( old_id != id ) {
+					cdmScrollToArticleId(id, true);
+				}
 
 				if (article_is_unread) {
 					decrementFeedCounter(getActiveFeedId(), activeFeedIsCat());
