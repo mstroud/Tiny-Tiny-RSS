@@ -5,6 +5,7 @@
 	require_once "db.php";
 	require_once "lib/accept-to-gettext.php";
 	require_once "lib/gettext/gettext.inc";
+	require_once "version.php";
 
 	$session_expire = max(SESSION_COOKIE_LIFETIME, 86400);
 	$session_name = (!defined('TTRSS_SESSION_NAME')) ? "ttrss_sid" : TTRSS_SESSION_NAME;
@@ -14,10 +15,11 @@
 		ini_set("session.cookie_secure", true);
 	}
 
-	ini_set("session.gc_probability", 50);
+	ini_set("session.gc_probability", 75);
 	ini_set("session.name", $session_name);
 	ini_set("session.use_only_cookies", true);
 	ini_set("session.gc_maxlifetime", $session_expire);
+	ini_set("session.cookie_lifetime", min(0, SESSION_COOKIE_LIFETIME));
 
 	global $session_connection;
 
@@ -37,6 +39,8 @@
 	function validate_session($link) {
 		if (SINGLE_USER_MODE) return true;
 		if (!$link) return false;
+
+		if (VERSION != $_SESSION["version"]) return false;
 
 		$check_ip = $_SESSION['ip_address'];
 
@@ -178,8 +182,8 @@
 			"ttrss_destroy", "ttrss_gc");
 	}
 
-	if (!defined('TTRSS_SESSION_NAME') || TTRSS_SESSION_NAME != 'ttrss_api_sid') {
-		if (isset($_COOKIE[$session_name])) {
+	if (!defined('NO_SESSION_AUTOSTART')) {
+		if (isset($_COOKIE[session_name()])) {
 			@session_start();
 		}
 	}
