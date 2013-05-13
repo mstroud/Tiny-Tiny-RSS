@@ -40,6 +40,8 @@ function setActiveFeedId(id, is_cat) {
 		$("headlines-frame").setAttribute("is-cat", is_cat ? 1 : 0);
 
 		selectFeed(id, is_cat);
+
+		PluginHost.run(PluginHost.HOOK_FEED_SET_ACTIVE, _active_article_id);
 	} catch (e) {
 		exception_error("setActiveFeedId", e);
 	}
@@ -114,6 +116,7 @@ function updateFeedList() {
 
 		tree.startup();
 
+
 	} catch (e) {
 		exception_error("updateFeedList", e);
 	}
@@ -134,7 +137,8 @@ function catchupAllFeeds() {
 		new Ajax.Request("backend.php", {
 			parameters: query_str,
 			onComplete: function(transport) {
-				feedlist_callback2(transport);
+				request_counters(true);
+				viewCurrentFeed();
 			} });
 
 		global_unread = 0;
@@ -246,13 +250,19 @@ function init() {
 		if (!genericSanityCheck())
 			return false;
 
-		loading_set_progress(20);
+		loading_set_progress(30);
 
-		var hasAudio = !!((myAudioTag = document.createElement('audio')).canPlayType);
+		var a = document.createElement('audio');
+
+		var hasAudio = !!a.canPlayType;
 		var hasSandbox = "sandbox" in document.createElement("iframe");
+		var hasMp3 = !!(a.canPlayType && a.canPlayType('audio/mpeg;').replace(/no/, ''));
+		var clientTzOffset = new Date().getTimezoneOffset() * 60;
 
 		new Ajax.Request("backend.php",	{
 			parameters: {op: "rpc", method: "sanityCheck", hasAudio: hasAudio,
+				hasMp3: hasMp3,
+			 	clientTzOffset: clientTzOffset,
 				hasSandbox: hasSandbox},
 			onComplete: function(transport) {
 					backend_sanity_check_callback(transport);
@@ -282,11 +292,27 @@ function init() {
 		hotkey_actions["prev_article_noscroll"] = function() {
 				moveToPost('prev', true);
 		};
+		hotkey_actions["next_article_noexpand"] = function() {
+				moveToPost('next', true, true);
+		};
+		hotkey_actions["prev_article_noexpand"] = function() {
+				moveToPost('prev', true, true);
+		};
 		hotkey_actions["collapse_article"] = function() {
 				var id = getActiveArticleId();
 				var elem = $("CICD-"+id);
 				if(elem.visible()) {
 					cdmCollapseArticle(null, id);
+				}
+				else {
+					cdmExpandArticle(id);
+				}
+		};
+		hotkey_actions["toggle_expand"] = function() {
+				var id = getActiveArticleId();
+				var elem = $("CICD-"+id);
+				if(elem.visible()) {
+					cdmCollapseArticle(null, id, false);
 				}
 				else {
 					cdmExpandArticle(id);
@@ -307,7 +333,7 @@ function init() {
 		hotkey_actions["edit_tags"] = function() {
 				var id = getActiveArticleId();
 				if (id) {
-					editArticleTags(id, getActiveFeedId(), isCdmMode());
+					editArticleTags(id);
 				};
 			}
 		hotkey_actions["dismiss_selected"] = function() {
@@ -436,11 +462,17 @@ function init() {
 		hotkey_actions["select_article_cursor"] = function() {
 				var id = getArticleUnderPointer();
 				if (id) {
-					var cb = dijit.byId("RCHK-" + id);
-					if (cb) {
-						cb.attr("checked", !cb.attr("checked"));
-						toggleSelectRowById(cb, "RROW-" + id);
-						return false;
+					var row = $("RROW-" + id);
+
+					if (row) {
+						var cb = dijit.getEnclosingWidget(
+							row.getElementsByClassName("rchk")[0]);
+
+						if (cb) {
+							cb.attr("checked", !cb.attr("checked"));
+							toggleSelectRowById(cb, "RROW-" + id);
+							return false;
+						}
 					}
 				}
 		};
@@ -516,10 +548,36 @@ function init_second_stage() {
 			closeArticlePanel();
 
 			_widescreen_mode = getInitParam("widescreen");
+			switchPanelMode(_widescreen_mode);
 
-			if (_widescreen_mode) {
-				switchPanelMode(_widescreen_mode);
+			if (parseInt(getCookie("ttrss_fh_width")) > 0) {
+				dijit.byId("feeds-holder").domNode.setStyle(
+					{width: getCookie("ttrss_fh_width") + "px" });
 			}
+
+			if (parseInt(getCookie("ttrss_ci_width")) > 0) {
+				if (_widescreen_mode) {
+					dijit.byId("content-insert").domNode.setStyle(
+						{width: getCookie("ttrss_ci_width") + "px" });
+
+				} else {
+					dijit.byId("content-insert").domNode.setStyle(
+						{height: getCookie("ttrss_ci_height") + "px" });
+				}
+			}
+
+			dijit.byId("main").resize();
+
+			var tmph = dojo.connect(dijit.byId('feeds-holder'), 'resize',
+				function (args) {
+					setCookie("ttrss_fh_width", args.w, getInitParam("cookie_lifetime"));
+			});
+
+			var tmph = dojo.connect(dijit.byId('content-insert'), 'resize',
+				function (args) {
+					setCookie("ttrss_ci_width", args.w, getInitParam("cookie_lifetime"));
+					setCookie("ttrss_ci_height", args.h, getInitParam("cookie_lifetime"));
+			});
 
 		});
 
@@ -542,7 +600,7 @@ function init_second_stage() {
 			setActiveFeedId(hash_feed_id, hash_feed_is_cat);
 		}
 
-		loading_set_progress(30);
+		loading_set_progress(50);
 
 		// can't use cache_clear() here because viewfeed might not have initialized yet
 		if ('sessionStorage' in window && window['sessionStorage'] !== null)
@@ -722,6 +780,8 @@ function parse_runtime_info(data) {
 		init_params[k] = v;
 		notify('');
 	}
+
+	PluginHost.run(PluginHost.HOOK_RUNTIME_INFO_LOADED, data);
 }
 
 function collapse_feedlist() {
@@ -961,7 +1021,7 @@ function handle_rpc_json(transport, scheduled_call) {
 			if (counters)
 				parse_counters(counters, scheduled_call);
 
-			var runtime_info = reply['runtime-info'];;
+			var runtime_info = reply['runtime-info'];
 
 			if (runtime_info)
 				parse_runtime_info(runtime_info);
@@ -1000,6 +1060,7 @@ function switchPanelMode(wide) {
 				borderTopWidth: '0px' });
 
 			$("headlines-toolbar").setStyle({ borderBottomWidth: '0px' });
+			$("headlines-frame").setStyle({ borderBottomWidth: '0px' });
 
 		} else {
 
@@ -1011,6 +1072,8 @@ function switchPanelMode(wide) {
 				borderTopWidth: '1px'});
 
 			$("headlines-toolbar").setStyle({ borderBottomWidth: '1px' });
+
+			$("headlines-frame").setStyle({ borderBottomWidth: '1px' });
 		}
 
 		closeArticlePanel();
@@ -1050,7 +1113,7 @@ function hash_get(key) {
 		kv = window.location.hash.substring(1).toQueryParams();
 		return kv[key];
 	} catch (e) {
-		exception_error("hash_set", e);
+		exception_error("hash_get", e);
 	}
 }
 function hash_set(key, value) {

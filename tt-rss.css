@@ -3,8 +3,8 @@ body#ttrssMain, body#ttrssPrefs, body#ttrssLogin, body {
 	color : black;
 	margin : 0px;
 	padding : 0px;
-	font-family : sans-serif;
-	font-size : 12px;
+	font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+	font-size: 14px;
 }
 
 body#ttrssPrefs {
@@ -41,6 +41,7 @@ div.postReply div.postHeader {
 
 div.postReply div.postTitle {
 	overflow : hidden;
+	text-overflow: ellipsis;
 	white-space : nowrap;
 }
 
@@ -56,6 +57,7 @@ div.postReply div.postContent {
 div.postReply div.postContent img {
 	border-width : 0px;
 	max-width : 98%;
+	height: auto;
 }
 
 div.postReply div.postEnclosures {
@@ -73,9 +75,12 @@ div.postReply img.tagsPic {
 div.articleNote {
 	background-color : #fff7d5;
 	padding : 5px;
-	border-style : none none dashed none;
+	border-radius : 4px;
+	margin : 5px;
+	border-style : solid;
 	border-color : #e7d796;
 	border-width : 1px;
+	box-shadow : 0px 0px 2px rgba(0,0,0,0.1);
 	background-color : #fff7d5;
 	color : #9a8c59;
 }
@@ -111,8 +116,9 @@ h3 {
 
 hr {
 	border-width : 0px 0px 1px 0px;
-	border-style : dashed;
-	border-color : #e0e0e0;
+	border-style : solid;
+	border-color : #c0c0c0;
+	max-width : 90%;
 }
 
 a {
@@ -130,23 +136,37 @@ a:hover {
 }
 
 #notify {
-	top : 25px;
+	bottom : 10px;
 	right : 10px;
 	border-width : 1px;
 	border-style : solid;
 	position : absolute;	
-	display : none;
-	float : right;
-	font-size : 11px;
+	font-size : 12px;
 	z-index : 99;
+	max-width : 200px;
+	min-width : 100px;
 	padding : 5px;
-	min-width : 200px;
-	box-shadow : 0px 0px 2px #ccc;
+	-width : 200px;
+	box-shadow : 0px 0px 2px rgba(0,0,0,0.2);
 }
 
 #notify img {
 	vertical-align : middle;
-	margin-right : 4px;
+	max-height : 14px;
+}
+
+#notify span.msg {
+	width : 100%;
+}
+
+#notify span.close {
+	text-align : right;
+}
+
+#notify span {
+	display : table-cell;
+	vertical-align : middle;
+	padding : 4px;
 }
 
 .notify {
@@ -169,45 +189,35 @@ a:hover {
 	border-color : #ff0000;
 }
 
-.notify.error span:hover {
-	color : red;
-	cursor : pointer;
-}
-
-.hl.Unread div.hlTitle {
+.hl div.hlTitle a {
 	font-weight : bold;
+	color : gray;
 }
 
-.hl.even.Grayed {
+.hl.Unread div.hlTitle a {
+	color : black;
+}
+
+.hl.active div.hlTitle a {
+	color : #4684ff;
+}
+
+.hl.Grayed {
+	color : #909090;
+}
+
+#headlines-frame div.hl:nth-child(even) {
 	background : #f0f0f0;
-	color : #909090;
-	border-width : 0px 0px 1px 0px;
-	border-style : solid;
-	border-color : #c0c0c0;
-	border-collapse : collapse;
-}
-
-.hl.odd.Grayed {
-	color : #909090;
 }
 
 .hl {
-	border-width : 0px 1px 1px 0px;
+	border-width : 0px 0px 1px 0px;
 	border-style : solid;
 	border-color : #c0c0c0;
 }
 
 .hl.active {
 	background : #ecf4ff ! important;
-}
-
-.hl.even {
-	background : #f0f0f0;
-	border-collapse : collapse;
-}
-
-.hl.odd {
-	background : white;
 }
 
 div.filterTestHolder {
@@ -248,6 +258,8 @@ div.filterTestHolder {
 	border-style : solid;
 	background : #fafafa;
 	display : block;
+	max-width : 98%;
+	overflow : auto;
 }
 
 div.notice, div.warning, div.error {
@@ -255,7 +267,11 @@ div.notice, div.warning, div.error {
 	display : inline-block;
 	margin : 2px 0px 4px 0px;
 	font-size : 12px;
-	box-shadow : 0px 0px 2px #ccc;
+	border-style : solid;
+	border-color : #ccc;
+	border-radius : 4px;
+	border-width : 1px;
+	box-shadow : 0px 0px 2px rgba(0,0,0,0.1);
 }
 
 div.notice div.inner, div.warning div.inner, div.error div.inner {
@@ -264,20 +280,28 @@ div.notice div.inner, div.warning div.inner, div.error div.inner {
 
 div.notice {
 	background : #ecf4ff;
+	border-color : #88b0f0;
 }
 
 div.warning {
 	background : #fff7d5;
+	border-color : #e7d796;;
 }
 
 div.error {
 	background : #ffcccc;
+	border-color : #ff0000;
 }
 
 div.warning img, div.notice img, div.error img {
 	margin-right : 4px;
-	float : left;
 	vertical-align : middle;
+}
+
+div.warning span, div.notice span, div.error span {
+	display : table-cell;
+	vertical-align : middle;
+
 }
 
 ul.nomarks {
@@ -309,9 +333,9 @@ span.feed_error {
 
 div#headlines-toolbar {
 	border-width : 0px 0px 1px 0px;
-	background-color : #f0f0f0;
+	background-color : #fcfcfc;
 	border-color : #c0c0c0;
-	font-size : 11px;
+	font-size : 12px;
 	font-family : "Segoe UI", Tahoma, sans-serif;
 	color : gray;
 	padding : 0px;
@@ -361,9 +385,12 @@ span.hlLabelRef {
 	font-size : 8px;
 	color : #063064;
 	font-weight : normal;
-	margin : 0px 3px 0px 3px;
-	padding : 0px 4px 0px 4px;
+	margin-left : 2px;
+	padding : 1px 4px 1px 4px;
+	display : inline-block;
+	vertical-align : middle;
 	white-space: nowrap;
+	border-radius : 4px;
 }
 
 div.postHeader div.postDate {
@@ -390,19 +417,25 @@ div.postHeader div {
 	display : none;
 }
 
-div.hlFeed, div.hlFeed a {
-	font-size : 10px;
-	color : gray;
+a.hlFeed {
+	display : block;
+	white-space : nowrap;
+	font-size : 9px;
 	font-style : italic;
 	font-weight : normal;
-	white-space: nowrap;
+	border-radius : 4px;
+	display : inline-block;
+	padding : 1px 2px 1px 2px;
+	margin-bottom : 2px;
+	margin-top : 2px;
+	color : gray;
 }
 
-div.hlFeed a:hover {
+a.hlFeed:hover {
 	color : #4684ff;
 }
 
-img.markedPic {
+img.markedPic, img.pubPic {
 	cursor : pointer;
 	vertical-align : middle;
 }
@@ -708,7 +741,6 @@ span.hlUpdated {
 	vertical-align : middle;
 	text-align : right;
 	font-size : 10px;
-	font-weight : normal;
 }
 
 div.hlLeft {
@@ -756,7 +788,7 @@ div.fatalError textarea {
 
 #content-wrap {
 	padding : 0px;
-	border-width : 0px 0px 1px 1px;
+	border-width : 0px 0px 0px 1px;
 	border-style : solid;
   	border-color : #c0c0c0;
 	margin : 0px;
@@ -764,10 +796,11 @@ div.fatalError textarea {
 
 #feeds-holder {
 	padding : 0px;
-	border-color : #88b0f0;
+	border-color : #c0c0c0;
 	border-left-width : 0px;
 	border-bottom-width : 0px;
 	border-top-width : 0px;
+	overflow : hidden;
 }
 
 #headlines-wrap-inner {
@@ -778,11 +811,10 @@ div.fatalError textarea {
 
 #headlines-frame {
 	padding : 0px;
-	border-color : #88b0f0;
-	border-left-width : 0px;
-	border-right-width : 0px;
+	border-color : #c0c0c0;
+	border-style : solid;
+	border-width : 0px;
 	margin-top : 0px;
-	border-top-width : 0px;
 }
 
 #headlines-toolbar_splitter, #toolbar_splitter {
@@ -794,7 +826,7 @@ div.fatalError textarea {
 	margin : 0px;
 	border-width : 0px;
 	white-space: nowrap;
-	font-size : 11px;
+	font-size : 12px;
 }
 
 #header {
@@ -818,10 +850,11 @@ div.fatalError textarea {
 
 #content-insert {
 	padding : 0px;
-	border-color : #88b0f0;
+	border-color : #c0c0c0;
 	border-bottom-width : 0px;
 	border-right-width : 0px;
 	border-left-width : 0px;
+	line-height: 20px;
 	overflow : auto;
 }
 
@@ -856,6 +889,7 @@ img.feedIcon, img.tinyFeedIcon {
 	width : 16px;
 	height : 16px;
 	vertical-align : middle;
+	display : inline-block;
 }
 
 .dijitDialog .dijitToolbar {
@@ -944,6 +978,7 @@ ul.helpKbList h2 {
 
 .dijitTreeNode .loadingNode {
 	margin-left : 3px;
+	height : 9px;
 }
 
 span.collapseBtn {
@@ -990,6 +1025,11 @@ body#ttrssZoom div.footer {
 	text-align : center;
 }
 
+body#ttrssZoom div.postContent img {
+	max-width : 650px;
+	height : auto;
+}
+
 select.attachments {
 	display : block;
 	margin-top : 10px;
@@ -1000,7 +1040,50 @@ div.hl.active {
 	border-color : #88b0f0;
 }
 
-div.hl.active a.title {
-	color : #4684ff;
+#selected_prompt {
+	margin-right : 25px;
 }
 
+#feedTree .dijitTreeRow {
+	padding : 2px 0px 2px;
+	border-width : 1px;
+	border-color : transparent;
+}
+
+#feedTree .dijitTreeNode {
+	padding : 0px;
+	border-width : 0px;
+}
+
+#feedTree { 
+	height : 100%;
+	overflow-x : hidden;
+}
+
+#feedTree .counterNode {
+	font-weight : bold;
+	display : inline-block;
+	font-size : 9px;
+	text-align : center;
+	border : 1px solid #88b0f0;
+	color : white;
+	background : #88b0f0;
+	border-radius : 4px;
+	vertical-align : middle;
+	float : right;
+	margin-right : 5px;
+	position : relative;
+	top : 2px;
+	min-width : 23px;
+}
+
+#feedTree .dijitTreeRow {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+body#ttrssPrefs hr {
+	border-color : #ecf4ff;
+	max-width : 100%;
+}

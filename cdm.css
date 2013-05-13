@@ -55,11 +55,13 @@ div.cdmContent a:hover {
 
 div.cdmContentInner {
 	margin : 10px;
+	line-height : 20px;
 }
 
 div.cdmContentInner img {
 	border-width : 0px;
 	max-width : 98%;
+	height : auto;
 }
 
 div.cdmFooter {
@@ -69,53 +71,78 @@ div.cdmFooter {
 	clear : both;
 }
 
-div.cdm {
-	border-width : 0px 1px 1px 0px;
-	border-collapse : collapse;
-	border-color : #c0c0c0;
-	border-style : solid;
-	background : #fafafa;
+div.cdm.expanded {
+	margin-top : 4px;
+	margin-bottom : 4px;
 }
 
 div.cdm.expandable {
-	background : #f0f0f0;
-}
-
-div.cdm.expanded, div.cdm.expandable {
-	margin : 4px 4px 0px 4px;
-	border-width : 1px;
+	background-color : #f0f0f0;
+	border-width : 0px 0px 1px 0px;
 	border-color : #c0c0c0;
-	box-shadow : 0px 0px 3px #ccc;
+	border-style : solid;
 }
 
-div.cdm.expanded div.cdmHeader {
-	background : #e0e0e0;
+div.cdm.expandable > hr {
+	display : none;
+}
+
+div.cdm.expanded > hr {
+	margin-top : 0px;
+	margin-bottom : 0px;
 }
 
 div.cdm.Unread {
 	background : white;
 }
 
-div.cdm.Unread div.cdmHeader {
-	background : #ecf4ff;
-}
-
 div.cdm.active {
 	border-color : #88b0f0;
 	background : white ! important;
-	box-shadow : 0px 0px 3px #4684ff;
 }
 
-div.cdm.active div.cdmHeader {
-	background : #ecf4ff;
+div.cdm.expandable div.cdmHeader a.title {
+	font-weight : bold;
+	color : gray;
 }
 
-div.cdm.active div.cdmHeader a.title {
+div.cdm.expandable.Unread div.cdmHeader a.title {
+	color : black;
+}
+
+div.cdm.expandable.active div.cdmHeader a.title {
 	color : #4684ff;
 }
 
+div.cdm.expanded div.cdmHeader {
+	background : transparent ! important;
+}
+
+div.cdm.expanded div.cdmHeader a.title {
+	font-size : 14px;
+	color : gray;
+	font-weight : bold;
+}
+
+
+div.cdm.expanded.active div.cdmHeader a.title {
+	color : #4684ff;
+}
+
+div.cdm.expanded.Unread div.cdmHeader a.title {
+	color : black;
+}
+
+div.cdm.expanded div.cdmContent {
+	color : gray;
+}
+
+div.cdm.expanded.Unread div.cdmContent {
+	color : black;
+}
+
 div.cdm.active div.cdmContent {
-	background : white;
+	color : black;
 }
 
 span.cdmExcerpt {
@@ -144,16 +171,13 @@ div.cdmFeedTitle a.title {
 	font-style : italic;
 	font-weight : bold;
 }
+
 div.cdmFeedTitle a {
 	color : gray;
 }
 
 div.cdmFeedTitle a:hover {
 	color : #4684ff;
-}
-
-div.articleNote {
-	border-style : dashed none dashed none;
 }
 
 div.cdmHeader span.hlFeed {
@@ -170,12 +194,14 @@ div.cdmHeader div.hlFeed, div.cdmHeader div.hlFeed a {
 	font-size : 11px;
 }
 
-div.cdmContentInner p {
-	max-width : 650px;
+div.cdm .hlFeed a {
+	border-radius : 4px;
+	display : inline-block;
+	padding : 1px 4px 1px 4px;
 }
 
-.Unread div.cdmHeader {
-	font-weight : bold;
+div.cdmContentInner p {
+	max-width : 650px;
 }
 
 div.cdmContentInner iframe {
@@ -186,10 +212,6 @@ div.cdmHeader span.author {
 	color : gray;
 	font-size : 11px;
 	font-weight : normal;
-}
-
-div.cdm.expanded div.cdmHeader a.title, div.cdm.active div.cdmHeader a.title {
-	font-size : 13px;
 }
 
 
