@@ -71,6 +71,7 @@
 					"hu_HU" => "Magyar (Hungarian)",
 					"it_IT" => "Italiano",
 					"ja_JP" => "日本語 (Japanese)",
+					"ko_KR" => "한국어 (Korean)",
 					"lv_LV" => "Latviešu",
 					"nb_NO" => "Norwegian bokmål",
 					"nl_NL" => "Dutch",
@@ -1966,7 +1967,6 @@
 		$params["max_feed_id"] = (int) $max_feed_id;
 		$params["num_feeds"] = (int) $num_feeds;
 
-		$params["collapsed_feedlist"] = (int) get_pref("_COLLAPSED_FEEDLIST");
 		$params["hotkeys"] = get_hotkeys_map();
 
 		$params["csrf_token"] = $_SESSION["csrf_token"];
@@ -2750,9 +2750,12 @@
 
 			if ($site_url) {
 
-				if ($entry->hasAttribute('href'))
+				if ($entry->hasAttribute('href')) {
 					$entry->setAttribute('href',
 						rewrite_relative_url($site_url, $entry->getAttribute('href')));
+
+					$entry->setAttribute('rel', 'noreferrer');
+				}
 
 				if ($entry->hasAttribute('src')) {
 					$src = rewrite_relative_url($site_url, $entry->getAttribute('src'));
@@ -3037,7 +3040,7 @@
 			if ($_SESSION["hasAudio"] && (strpos($ctype, "ogg") !== false ||
 				$_SESSION["hasMp3"])) {
 
-				$entry .= "<audio controls>
+				$entry .= "<audio preload=\"none\" controls>
 					<source type=\"$ctype\" src=\"$url\"></source>
 					</audio>";
 
