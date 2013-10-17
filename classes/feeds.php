@@ -48,9 +48,11 @@ class Feeds extends Handler_Protected {
 
 		// right part
 
+		$error_class = $error ? "error" : "";
+
 		$reply .= "<span class='r'>";
 		$reply .= "<span id='selected_prompt'></span>";
-		$reply .= "<span id='feed_title'>";
+		$reply .= "<span id='feed_title' class='$error_class'>";
 
 		if ($feed_site_url) {
 			$last_updated = T_sprintf("Last updated: %s",
@@ -61,7 +63,8 @@ class Feeds extends Handler_Protected {
 				truncate_string($feed_title,30)."</a>";
 
 			if ($error) {
-				$reply .= " (<span class=\"error\" title=\"$error\">Error</span>)";
+				$error = htmlspecialchars($error);
+				$reply .= "&nbsp;<img title=\"$error\" src='images/error.png' alt='error' class=\"noborder\" style=\"vertical-align : middle\">";
 			}
 
 		} else {
@@ -74,7 +77,7 @@ class Feeds extends Handler_Protected {
 			<a href=\"#\"
 				title=\"".__("View as RSS feed")."\"
 				onclick=\"displayDlg('".__("View as RSS")."','generatedFeed', '$feed_id:$is_cat:$rss_link')\">
-				<img class=\"noborder\" style=\"vertical-align : middle\" src=\"images/pub_set.svg\"></a>";
+				<img class=\"noborder\" style=\"vertical-align : middle\" src=\"images/pub_set.png\"></a>";
 
 		$reply .= "</span>";
 
@@ -252,6 +255,7 @@ class Feeds extends Handler_Protected {
 		$last_error = $qfh_ret[3];
 		$last_updated = strpos($qfh_ret[4], '1970-') === FALSE ?
 			make_local_datetime($qfh_ret[4], false) : __("Never");
+		$highlight_words = $qfh_ret[5];
 
 		$vgroup_last_feed = $vgr_last_feed;
 
@@ -288,6 +292,16 @@ class Feeds extends Handler_Protected {
 			$expand_cdm = get_pref('CDM_EXPANDED');
 
 			while ($line = $this->dbh->fetch_assoc($result)) {
+				$line["content_preview"] =  "&mdash; " . truncate_string(strip_tags($line["content_preview"]), 250);
+
+				foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_QUERY_HEADLINES) as $p) {
+					$line = $p->hook_query_headlines($line, 250, false);
+				}
+
+				if (get_pref('SHOW_CONTENT_PREVIEW')) {
+					$content_preview =  $line["content_preview"];
+				}
+
 				$id = $line["id"];
 				$feed_id = $line["feed_id"];
 				$label_cache = $line["label_cache"];
@@ -306,7 +320,7 @@ class Feeds extends Handler_Protected {
 
 				if (!is_array($labels)) $labels = get_article_labels($id);
 
-				$labels_str = "<span id=\"HLLCTR-$id\">";
+				$labels_str = "<span class=\"HLLCTR-$id\">";
 				$labels_str .= format_article_labels($labels, $id);
 				$labels_str .= "</span>";
 
@@ -323,24 +337,24 @@ class Feeds extends Handler_Protected {
 
 				if (sql_bool_to_bool($line["marked"])) {
 					$marked_pic = "<img
-						src=\"images/mark_set.svg\"
+						src=\"images/mark_set.png\"
 						class=\"markedPic\" alt=\"Unstar article\"
 						onclick='toggleMark($id)'>";
 					$class .= " marked";
 				} else {
 					$marked_pic = "<img
-						src=\"images/mark_unset.svg\"
+						src=\"images/mark_unset.png\"
 						class=\"markedPic\" alt=\"Star article\"
 						onclick='toggleMark($id)'>";
 				}
 
 				if (sql_bool_to_bool($line["published"])) {
-					$published_pic = "<img src=\"images/pub_set.svg\"
+					$published_pic = "<img src=\"images/pub_set.png\"
 						class=\"pubPic\"
 							alt=\"Unpublish article\" onclick='togglePub($id)'>";
 					$class .= " published";
 				} else {
-					$published_pic = "<img src=\"images/pub_unset.svg\"
+					$published_pic = "<img src=\"images/pub_unset.png\"
 						class=\"pubPic\"
 						alt=\"Publish article\" onclick='togglePub($id)'>";
 				}
@@ -360,11 +374,6 @@ class Feeds extends Handler_Protected {
 				$date_entered_fmt = T_sprintf("Imported at %s",
 					make_local_datetime($line["date_entered"], false));
 
-				if (get_pref('SHOW_CONTENT_PREVIEW')) {
-					$content_preview = truncate_string(strip_tags($line["content_preview"]),
-						250);
-				}
-
 				$score = $line["score"];
 
 				$score_pic = "images/" . get_score_pic($score);
@@ -377,9 +386,9 @@ class Feeds extends Handler_Protected {
 					title=\"$score\">";
 
 				if ($score > 500) {
-					$hlc_suffix = "H";
+					$hlc_suffix = "high";
 				} else if ($score < -100) {
-					$hlc_suffix = "L";
+					$hlc_suffix = "low";
 				} else {
 					$hlc_suffix = "";
 				}
@@ -395,7 +404,7 @@ class Feeds extends Handler_Protected {
 				if ($has_feed_icon) {
 					$feed_icon_img = "<img class=\"tinyFeedIcon\" src=\"".ICONS_URL."/$feed_id.ico\" alt=\"\">";
 				} else {
-					$feed_icon_img = "<img class=\"tinyFeedIcon\" src=\"images/pub_set.svg\" alt=\"\">";
+					$feed_icon_img = "<img class=\"tinyFeedIcon\" src=\"images/pub_set.png\" alt=\"\">";
 				}
 
 				$entry_site_url = $line["site_url"];
@@ -448,16 +457,14 @@ class Feeds extends Handler_Protected {
 					$reply['content'] .= "</div>";
 
 					$reply['content'] .= "<div onclick='return hlClicked(event, $id)'
-						class=\"hlTitle\"><span class='hlContent$hlc_suffix'>";
-					$reply['content'] .= "<a id=\"RTITLE-$id\" class=\"title\"
+						class=\"hlTitle\"><span class='hlContent $hlc_suffix'>";
+					$reply['content'] .= "<a id=\"RTITLE-$id\" class=\"title $hlc_suffix\"
 						href=\"" . htmlspecialchars($line["link"]) . "\"
 						onclick=\"\">" .
 						truncate_string($line["title"], 200);
 
 					if (get_pref('SHOW_CONTENT_PREVIEW')) {
-						if ($content_preview) {
-							$reply['content'] .= "<span class=\"contentPreview\"> - $content_preview</span>";
-						}
+							$reply['content'] .= "<span class=\"contentPreview\">" . $line["content_preview"] . "</span>";
 					}
 
 					$reply['content'] .= "</a></span>";
@@ -502,8 +509,8 @@ class Feeds extends Handler_Protected {
 					else
 						$tags = false;
 
-					$line["content"] = sanitize($line["content_preview"],
-							sql_bool_to_bool($line['hide_images']), false, $entry_site_url);
+					$line["content"] = sanitize($line["content"],
+							sql_bool_to_bool($line['hide_images']), false, $entry_site_url, $highlight_words, $line["id"]);
 
 					foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_RENDER_ARTICLE_CDM) as $p) {
 						$line = $p->hook_render_article_cdm($line);
@@ -539,7 +546,7 @@ class Feeds extends Handler_Protected {
 
 					$expanded_class = $expand_cdm ? "expanded" : "expandable";
 
-					$reply['content'] .= "<div class=\"cdm $expanded_class $class\"
+					$reply['content'] .= "<div class=\"cdm $hlc_suffix $expanded_class $class\"
 						id=\"RROW-$id\" $mouseover_attrs>";
 
 					$reply['content'] .= "<div class=\"cdmHeader\" style=\"$row_background\">";
@@ -554,10 +561,17 @@ class Feeds extends Handler_Protected {
 
 					$reply['content'] .= "</div>";
 
+					if ($highlight_words && count($highlight_words > 0)) {
+						foreach ($highlight_words as $word) {
+							$line["title"] = preg_replace("/(\Q$word\E)/i",
+								"<span class=\"highlight\">$1</span>", $line["title"]);
+						}
+					}
+
 					$reply['content'] .= "<span id=\"RTITLE-$id\"
 						onclick=\"return cdmClicked(event, $id);\"
-						class=\"titleWrap$hlc_suffix\">
-						<a class=\"title\"
+						class=\"titleWrap $hlc_suffix\">
+						<a class=\"title $hlc_suffix\"
 						target=\"_blank\" href=\"".
 						htmlspecialchars($line["link"])."\">".
 						$line["title"] .
@@ -574,8 +588,8 @@ class Feeds extends Handler_Protected {
 					else
 						$excerpt_hidden = "style=\"display : none\"";
 
-					$reply['content'] .= "<span $excerpt_hidden
-						id=\"CEXC-$id\" class=\"cdmExcerpt\"> - $content_preview</span>";
+					$reply['content'] .= "<span $excerpt_hidden id=\"CEXC-$id\" class=\"cdmExcerpt\">" . $content_preview . "</span>";
+
 					$reply['content'] .= "</span>";
 
 					if (!get_pref('VFEED_GROUP_BY_FEED')) {
@@ -615,7 +629,9 @@ class Feeds extends Handler_Protected {
 					}
 					$reply['content'] .= "</div>";
 
-					$reply['content'] .= "<div class=\"cdmContentInner\">";
+					if (!$line['lang']) $line['lang'] = 'en';
+
+					$reply['content'] .= "<div class=\"cdmContentInner\" lang=\"".$line['lang']."\">";
 
 			if ($line["orig_feed_id"]) {
 
@@ -638,7 +654,7 @@ class Feeds extends Handler_Protected {
 							$reply['content'] .= "&nbsp;";
 
 							$reply['content'] .= "<a target='_blank' href='" . htmlspecialchars($tmp_line['feed_url']) . "'>";
-							$reply['content'] .= "<img title='".__('Feed URL')."'class='tinyFeedIcon' src='images/pub_unset.svg'></a>";
+							$reply['content'] .= "<img title='".__('Feed URL')."'class='tinyFeedIcon' src='images/pub_unset.png'></a>";
 
 							$reply['content'] .= "</div>";
 						}
@@ -685,10 +701,13 @@ class Feeds extends Handler_Protected {
 						} else {
 							$comments_url = htmlspecialchars($line["link"]);
 						}
-						$entry_comments = "<a target='_blank' href=\"$comments_url\">$num_comments comments</a>";
+						$entry_comments = "<a class=\"postComments\"
+							target='_blank' href=\"$comments_url\">$num_comments ".
+							_ngettext("comment", "comments", $num_comments)."</a>";
+
 					} else {
 						if ($line["comments"] && $line["link"] != $line["comments"]) {
-							$entry_comments = "<a target='_blank' href=\"".htmlspecialchars($line["comments"])."\">comments</a>";
+							$entry_comments = "<a class=\"postComments\" target='_blank' href=\"".htmlspecialchars($line["comments"])."\">".__("comments")."</a>";
 						}
 					}
 
@@ -863,7 +882,7 @@ class Feeds extends Handler_Protected {
 			$override_order = "ttrss_entries.title";
 			break;
 		case "date_reverse":
-			$override_order = "date_entered, updated";
+			$override_order = "score DESC, date_entered, updated";
 			break;
 		case "feed_dates":
 			$override_order = "updated DESC";
@@ -1128,7 +1147,7 @@ class Feeds extends Handler_Protected {
 
 		if (!SPHINX_ENABLED) {
 			print "<div style=\"float : left\">
-				<a class=\"visibleLink\" target=\"_blank\" href=\"http://tt-rss.org/wiki/SearchSyntax\">Search syntax</a>
+				<a class=\"visibleLink\" target=\"_blank\" href=\"http://tt-rss.org/wiki/SearchSyntax\">".__("Search syntax")."</a>
 				</div>";
 		}
 

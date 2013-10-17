@@ -1,5 +1,6 @@
 <?php
 class FeedItem_Atom extends FeedItem_Common {
+
 	function get_id() {
 		$id = $this->elem->getElementsByTagName("id")->item(0);
 
@@ -30,6 +31,7 @@ class FeedItem_Atom extends FeedItem_Common {
 		}
 	}
 
+
 	function get_link() {
 		$links = $this->elem->getElementsByTagName("link");
 
@@ -38,8 +40,13 @@ class FeedItem_Atom extends FeedItem_Common {
 				(!$link->hasAttribute("rel")
 					|| $link->getAttribute("rel") == "alternate"
 					|| $link->getAttribute("rel") == "standout")) {
+				$base = $this->xpath->evaluate("string(ancestor-or-self::*[@xml:base][1]/@xml:base)", $link);
 
-				return $link->getAttribute("href");
+				if ($base)
+					return rewrite_relative_url($base, $link->getAttribute("href"));
+				else
+					return $link->getAttribute("href");
+
 			}
 		}
 	}
@@ -130,7 +137,7 @@ class FeedItem_Atom extends FeedItem_Common {
 			}
 		}
 
-		$enclosures = $this->xpath->query("media:content", $this->elem);
+		$enclosures = $this->xpath->query("media:content | media:group/media:content", $this->elem);
 
 		foreach ($enclosures as $enclosure) {
 			$enc = new FeedEnclosure();
@@ -138,6 +145,9 @@ class FeedItem_Atom extends FeedItem_Common {
 			$enc->type = $enclosure->getAttribute("type");
 			$enc->link = $enclosure->getAttribute("url");
 			$enc->length = $enclosure->getAttribute("length");
+
+			$desc = $this->xpath->query("media:description", $enclosure)->item(0);
+			if ($desc) $enc->title = strip_tags($desc->nodeValue);
 
 			array_push($encs, $enc);
 		}

@@ -1,6 +1,6 @@
 <?php
 	define('EXPECTED_CONFIG_VERSION', 26);
-	define('SCHEMA_VERSION', 121);
+	define('SCHEMA_VERSION', 123);
 
 	define('LABEL_BASE_INDEX', -1024);
 	define('PLUGIN_FEED_BASE_INDEX', -128);
@@ -11,6 +11,7 @@
 	$fetch_last_error_code = false;
 	$fetch_last_content_type = false;
 	$fetch_curl_used = false;
+	$suppress_debugging = false;
 
 	mb_internal_encoding("UTF-8");
 	date_default_timezone_set('UTC');
@@ -71,7 +72,6 @@
 					"hu_HU" => "Magyar (Hungarian)",
 					"it_IT" => "Italiano",
 					"ja_JP" => "日本語 (Japanese)",
-					"ko_KR" => "한국어 (Korean)",
 					"lv_LV" => "Latviešu",
 					"nb_NO" => "Norwegian bokmål",
 					"nl_NL" => "Dutch",
@@ -88,6 +88,7 @@
 	require_once "lib/accept-to-gettext.php";
 	require_once "lib/gettext/gettext.inc";
 
+	require_once "lib/languagedetect/LanguageDetect.php";
 
 	function startup_gettext() {
 
@@ -132,6 +133,12 @@
 
 	$schema_version = false;
 
+	function _debug_suppress($suppress) {
+		global $suppress_debugging;
+
+		$suppress_debugging = $suppress;
+	}
+
 	/**
 	 * Print a timestamped debug message.
 	 *
@@ -139,6 +146,11 @@
 	 * @return void
 	 */
 	function _debug($msg, $show = true) {
+		global $suppress_debugging;
+
+		//echo "[$suppress_debugging] $msg $show\n";
+
+		if ($suppress_debugging) return false;
 
 		$ts = strftime("%H:%M:%S", time());
 		if (function_exists('posix_getpid')) {
@@ -153,7 +165,29 @@
 			$fp = fopen(LOGFILE, 'a+');
 
 			if ($fp) {
+				$locked = false;
+
+				if (function_exists("flock")) {
+					$tries = 0;
+
+					// try to lock logfile for writing
+					while ($tries < 5 && !$locked = flock($fp, LOCK_EX | LOCK_NB)) {
+						sleep(1);
+						++$tries;
+					}
+
+					if (!$locked) {
+						fclose($fp);
+						return;
+					}
+				}
+
 				fputs($fp, "[$ts] $msg\n");
+
+				if (function_exists("flock")) {
+					flock($fp, LOCK_UN);
+				}
+
 				fclose($fp);
 			}
 		}
@@ -348,6 +382,10 @@
 			if ($post_query) {
 				curl_setopt($ch, CURLOPT_POST, true);
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $post_query);
+			}
+
+			if ((OPENSSL_VERSION_NUMBER >= 0x0090808f) && (OPENSSL_VERSION_NUMBER < 0x10000000)) {
+				curl_setopt($ch, CURLOPT_SSLVERSION, 3);
 			}
 
 			if ($login && $pass)
@@ -1059,7 +1097,7 @@
 					$date_qpart = "date_entered < DATE_SUB(NOW(), INTERVAL 1 WEEK) ";
 				}
 				break;
-			case "2weeks":
+			case "2week":
 				if (DB_TYPE == "pgsql") {
 					$date_qpart = "date_entered < NOW() - INTERVAL '2 week' ";
 				} else {
@@ -1502,7 +1540,11 @@
 			foreach ($feeds as $feed) {
 				$cv = array("id" => PluginHost::pfeed_to_feed_id($feed['id']),
 					"counter" => $feed['sender']->get_unread($feed['id']));
-					array_push($ret_arr, $cv);
+
+				if (method_exists($feed['sender'], 'get_total'))
+					$cv["auxcounter"] = $feed['sender']->get_total($feed['id']);
+
+				array_push($ret_arr, $cv);
 			}
 		}
 
@@ -1515,13 +1557,10 @@
 
 		$owner_uid = $_SESSION["uid"];
 
-		$result = db_query("SELECT id,caption,COUNT(u1.unread) AS unread,COUNT(u2.unread) AS total
+		$result = db_query("SELECT id,caption,SUM(CASE WHEN u1.unread = true THEN 1 ELSE 0 END) AS unread, COUNT(u1.unread) AS total
 			FROM ttrss_labels2 LEFT JOIN ttrss_user_labels2 ON
 				(ttrss_labels2.id = label_id)
-				LEFT JOIN ttrss_user_entries AS u1 ON (u1.ref_id = article_id AND u1.unread = true
-					AND u1.owner_uid = $owner_uid)
-				LEFT JOIN ttrss_user_entries AS u2 ON (u2.ref_id = article_id AND u2.unread = false
-					AND u2.owner_uid = $owner_uid)
+				LEFT JOIN ttrss_user_entries AS u1 ON u1.ref_id = article_id
 				WHERE ttrss_labels2.owner_uid = $owner_uid GROUP BY ttrss_labels2.id,
 					ttrss_labels2.caption");
 
@@ -1876,19 +1915,19 @@
 			return "images/archive.png";
 			break;
 		case -1:
-			return "images/mark_set.svg";
+			return "images/star.png";
 			break;
 		case -2:
-			return "images/pub_set.svg";
+			return "images/feed.png";
 			break;
 		case -3:
 			return "images/fresh.png";
 			break;
 		case -4:
-			return "images/tag.png";
+			return "images/folder.png";
 			break;
 		case -6:
-			return "images/recently_read.png";
+			return "images/time.png";
 			break;
 		default:
 			if ($id < LABEL_BASE_INDEX) {
@@ -2196,6 +2235,7 @@
 
 		$keywords = explode(" ", $search);
 		$query_keywords = array();
+		$search_words = array();
 
 		foreach ($keywords as $k) {
 			if (strpos($k, "-") === 0) {
@@ -2215,6 +2255,7 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					array_push($search_words, $k);
 				}
 				break;
 			case "author":
@@ -2224,6 +2265,7 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					array_push($search_words, $k);
 				}
 				break;
 			case "note":
@@ -2238,6 +2280,7 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					if (!$not) array_push($search_words, $k);
 				}
 				break;
 			case "star":
@@ -2250,6 +2293,7 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					if (!$not) array_push($search_words, $k);
 				}
 				break;
 			case "pub":
@@ -2262,6 +2306,7 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					if (!$not) array_push($search_words, $k);
 				}
 				break;
 			default:
@@ -2277,13 +2322,15 @@
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+
+					if (!$not) array_push($search_words, $k);
 				}
 			}
 		}
 
 		$search_query_part = implode("AND", $query_keywords);
 
-		return $search_query_part;
+		return array($search_query_part, $search_words);
 	}
 
 	function getParentCategories($cat, $owner_uid) {
@@ -2314,11 +2361,12 @@
 		return $rv;
 	}
 
-	function queryFeedHeadlines($feed, $limit, $view_mode, $cat_view, $search, $search_mode, $override_order = false, $offset = 0, $owner_uid = 0, $filter = false, $since_id = 0, $include_children = false, $ignore_vfeed_group = false) {
+	function queryFeedHeadlines($feed, $limit, $view_mode, $cat_view, $search, $search_mode, $override_order = false, $offset = 0, $owner_uid = 0, $filter = false, $since_id = 0, $include_children = false, $ignore_vfeed_group = false, $override_strategy = false, $override_vfeed = false) {
 
 		if (!$owner_uid) $owner_uid = $_SESSION["uid"];
 
 		$ext_tables_part = "";
+		$search_words = array();
 
 			if ($search) {
 
@@ -2331,7 +2379,7 @@
 						$search_query_part = "ref_id = -1 AND ";
 
 				} else {
-					$search_query_part = search_to_sql($search);
+					list($search_query_part, $search_words) = search_to_sql($search);
 					$search_query_part .= " AND ";
 				}
 
@@ -2516,6 +2564,11 @@
 				$allow_archived = true;
 
 				if (!$override_order) $override_order = "last_read DESC";
+
+/*			} else if ($feed == -7) { // shared
+				$query_strategy_part = "uuid != ''";
+				$vfeed_query_part = "ttrss_feeds.title AS feed_title,";
+				$allow_archived = true; */
 			} else if ($feed == -3) { // fresh virtual feed
 				$query_strategy_part = "unread = true AND score >= 0";
 
@@ -2557,6 +2610,14 @@
 				$order_by = $override_order;
 			}
 
+			if ($override_strategy) {
+				$query_strategy_part = $override_strategy;
+			}
+
+			if ($override_vfeed) {
+				$vfeed_query_part = $override_vfeed;
+			}
+
 			$feed_title = "";
 
 			if ($search) {
@@ -2579,7 +2640,9 @@
 				}
 			}
 
-			$content_query_part = "content as content_preview, cached_content, ";
+
+			$content_query_part = "content, content AS content_preview, ";
+
 
 			if (is_numeric($feed)) {
 
@@ -2627,6 +2690,8 @@
 						num_comments,
 						comments,
 						int_id,
+						uuid,
+						lang,
 						hide_images,
 						unread,feed_id,marked,published,link,last_read,orig_feed_id,
 						last_marked, last_published,
@@ -2669,6 +2734,8 @@
 								"tag_cache," .
 								"label_cache," .
 								"link," .
+								"lang," .
+								"uuid," .
 								"last_read," .
 								"(SELECT hide_images FROM ttrss_feeds WHERE id = feed_id) AS hide_images," .
 								"last_marked, last_published, " .
@@ -2720,17 +2787,14 @@
 				$result = db_query($select_qpart . $from_qpart . $where_qpart);
 			}
 
-			return array($result, $feed_title, $feed_site_url, $last_error, $last_updated);
+			return array($result, $feed_title, $feed_site_url, $last_error, $last_updated, $search_words);
 
 	}
 
-	function sanitize($str, $force_remove_images = false, $owner = false, $site_url = false) {
+	function sanitize($str, $force_remove_images = false, $owner = false, $site_url = false, $highlight_words = false, $article_id = false) {
 		if (!$owner) $owner = $_SESSION["uid"];
 
 		$res = trim($str); if (!$res) return '';
-
-		if (strpos($res, "href=") === false)
-			$res = rewrite_urls($res);
 
 		$charset_hack = '<head>
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
@@ -2750,12 +2814,9 @@
 
 			if ($site_url) {
 
-				if ($entry->hasAttribute('href')) {
+				if ($entry->hasAttribute('href'))
 					$entry->setAttribute('href',
 						rewrite_relative_url($site_url, $entry->getAttribute('href')));
-
-					$entry->setAttribute('rel', 'noreferrer');
-				}
 
 				if ($entry->hasAttribute('src')) {
 					$src = rewrite_relative_url($site_url, $entry->getAttribute('src'));
@@ -2816,7 +2877,7 @@
 		$disallowed_attributes = array('id', 'style', 'class');
 
 		foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_SANITIZE) as $plugin) {
-			$retval = $plugin->hook_sanitize($doc, $site_url, $allowed_elements, $disallowed_attributes);
+			$retval = $plugin->hook_sanitize($doc, $site_url, $allowed_elements, $disallowed_attributes, $article_id);
 			if (is_array($retval)) {
 				$doc = $retval[0];
 				$allowed_elements = $retval[1];
@@ -2828,7 +2889,39 @@
 
 		$doc->removeChild($doc->firstChild); //remove doctype
 		$doc = strip_harmful_tags($doc, $allowed_elements, $disallowed_attributes);
+
+		if ($highlight_words) {
+			foreach ($highlight_words as $word) {
+
+				// http://stackoverflow.com/questions/4081372/highlight-keywords-in-a-paragraph
+
+				$elements = $xpath->query("//*/text()");
+
+				foreach ($elements as $child) {
+
+					$fragment = $doc->createDocumentFragment();
+					$text = $child->textContent;
+					$stubs = array();
+
+					while (($pos = mb_stripos($text, $word)) !== false) {
+						$fragment->appendChild(new DomText(mb_substr($text, 0, $pos)));
+						$word = mb_substr($text, $pos, mb_strlen($word));
+						$highlight = $doc->createElement('span');
+						$highlight->appendChild(new DomText($word));
+						$highlight->setAttribute('class', 'highlight');
+						$fragment->appendChild($highlight);
+						$text = mb_substr($text, $pos + mb_strlen($word));
+					}
+
+					if (!empty($text)) $fragment->appendChild(new DomText($text));
+
+					$child->parentNode->replaceChild($fragment, $child);
+				}
+			}
+		}
+
 		$res = $doc->saveHTML();
+
 		return $res;
 	}
 
@@ -2977,10 +3070,6 @@
 		if (preg_match("/^[0-9]*$/", $tag)) return false;
 		if (mb_strlen($tag) > 250) return false;
 
-		if (function_exists('iconv')) {
-			$tag = iconv("utf-8", "utf-8", $tag);
-		}
-
 		if (!$tag) return false;
 
 		return true;
@@ -2996,19 +3085,19 @@
 	function format_warning($msg, $id = "") {
 		global $link;
 		return "<div class=\"warning\" id=\"$id\">
-			<span><img src=\"images/sign_excl.svg\"></span><span>$msg</span></div>";
+			<span><img src=\"images/alert.png\"></span><span>$msg</span></div>";
 	}
 
 	function format_notice($msg, $id = "") {
 		global $link;
 		return "<div class=\"notice\" id=\"$id\">
-			<span><img src=\"images/sign_info.svg\"></span><span>$msg</span></div>";
+			<span><img src=\"images/information.png\"></span><span>$msg</span></div>";
 	}
 
 	function format_error($msg, $id = "") {
 		global $link;
 		return "<div class=\"error\" id=\"$id\">
-			<span><img src=\"images/sign_excl.svg\"></span><span>$msg</span></div>";
+			<span><img src=\"images/alert.png\"></span><span>$msg</span></div>";
 	}
 
 	function print_notice($msg) {
@@ -3097,17 +3186,17 @@
 			ccache_update($feed_id, $owner_uid);
 		}
 
-		$result = db_query("SELECT id,title,link,content,feed_id,comments,int_id,
+		$result = db_query("SELECT id,title,link,content,feed_id,comments,int_id,lang,
 			".SUBSTRING_FOR_DATE."(updated,1,16) as updated,
 			(SELECT site_url FROM ttrss_feeds WHERE id = feed_id) as site_url,
+			(SELECT title FROM ttrss_feeds WHERE id = feed_id) as feed_title,
 			(SELECT hide_images FROM ttrss_feeds WHERE id = feed_id) as hide_images,
 			(SELECT always_display_enclosures FROM ttrss_feeds WHERE id = feed_id) as always_display_enclosures,
 			num_comments,
 			tag_cache,
 			author,
 			orig_feed_id,
-			note,
-			cached_content
+			note
 			FROM ttrss_entries,ttrss_user_entries
 			WHERE	id = '$id' AND ref_id = id AND owner_uid = $owner_uid");
 
@@ -3122,7 +3211,7 @@
 
 			$line["content"] = sanitize($line["content"],
 				sql_bool_to_bool($line['hide_images']),
-				$owner_uid, $line["site_url"]);
+				$owner_uid, $line["site_url"], false, $line["id"]);
 
 			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_RENDER_ARTICLE) as $p) {
 				$line = $p->hook_render_article($line);
@@ -3137,10 +3226,13 @@
 				} else {
 					$comments_url = htmlspecialchars($line["link"]);
 				}
-				$entry_comments = "<a target='_blank' href=\"$comments_url\">$num_comments comments</a>";
+				$entry_comments = "<a class=\"postComments\"
+					target='_blank' href=\"$comments_url\">$num_comments ".
+					_ngettext("comment", "comments", $num_comments)."</a>";
+
 			} else {
 				if ($line["comments"] && $line["link"] != $line["comments"]) {
-					$entry_comments = "<a target='_blank' href=\"".htmlspecialchars($line["comments"])."\">comments</a>";
+					$entry_comments = "<a class=\"postComments\" target='_blank' href=\"".htmlspecialchars($line["comments"])."\">".__("comments")."</a>";
 				}
 			}
 
@@ -3150,6 +3242,21 @@
 						<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/>
 						<title>Tiny Tiny RSS - ".$line["title"]."</title>
 						<link rel=\"stylesheet\" type=\"text/css\" href=\"css/tt-rss.css\">
+						<script type=\"text/javascript\">
+						function openSelectedAttachment(elem) {
+							try {
+								var url = elem[elem.selectedIndex].value;
+
+								if (url) {
+									window.open(url);
+									elem.selectedIndex = 0;
+								}
+
+							} catch (e) {
+								exception_error(\"openSelectedAttachment\", e);
+							}
+						}
+					</script>
 					</head><body id=\"ttrssZoom\">";
 			}
 
@@ -3166,7 +3273,8 @@
 			$parsed_updated = make_local_datetime($line["updated"], true,
 				$owner_uid, true);
 
-			$rv['content'] .= "<div class=\"postDate\">$parsed_updated</div>";
+			if (!$zoom_mode)
+				$rv['content'] .= "<div class=\"postDate\">$parsed_updated</div>";
 
 			if ($line["link"]) {
 				$rv['content'] .= "<div class='postTitle'><a target='_blank'
@@ -3177,6 +3285,16 @@
 					"<span class='author'>$entry_author</span></div>";
 			} else {
 				$rv['content'] .= "<div class='postTitle'>" . $line["title"] . "$entry_author</div>";
+			}
+
+			if ($zoom_mode) {
+				$feed_title = "<a href=\"".htmlspecialchars($line["site_url"]).
+					"\" target=\"_blank\">".
+					htmlspecialchars($line["feed_title"])."</a>";
+
+				$rv['content'] .= "<div class=\"postFeedTitle\">$feed_title</div>";
+
+				$rv['content'] .= "<div class=\"postDate\">$parsed_updated</div>";
 			}
 
 			$tags_str = format_tags_string($line["tags"], $id);
@@ -3251,7 +3369,9 @@
 				}
 			$rv['content'] .= "</div>";
 
-			$rv['content'] .= "<div class=\"postContent\">";
+			if (!$line['lang']) $line['lang'] = 'en';
+
+			$rv['content'] .= "<div class=\"postContent\" lang=\"".$line['lang']."\">";
 
 			$rv['content'] .= $line["content"];
 			$rv['content'] .= format_article_enclosures($id,
@@ -3333,6 +3453,11 @@
 
 		$cat_id = (int)getFeedCategory($feed_id);
 
+		if ($cat_id == 0)
+			$null_cat_qpart = "cat_id IS NULL OR";
+		else
+			$null_cat_qpart = "";
+
 		$result = db_query("SELECT * FROM ttrss_filters2 WHERE
 			owner_uid = $owner_uid AND enabled = true ORDER BY order_id, title");
 
@@ -3348,7 +3473,7 @@
 				FROM ttrss_filters2_rules AS r,
 				ttrss_filter_types AS t
 				WHERE
-					(cat_id IS NULL OR cat_id IN ($check_cats)) AND
+					($null_cat_qpart (cat_id IS NULL AND cat_filter = false) OR cat_id IN ($check_cats)) AND
 					(feed_id IS NULL OR feed_id = '$feed_id') AND
 					filter_type = t.id AND filter_id = '$filter_id'");
 
@@ -3694,6 +3819,7 @@
 
 				$url = $line["content_url"];
 				$ctype = $line["content_type"];
+				$title = $line["title"];
 
 				if (!$ctype) $ctype = __("unknown type");
 
@@ -3716,6 +3842,7 @@
 				$entry["type"] = $ctype;
 				$entry["filename"] = $filename;
 				$entry["url"] = $url;
+				$entry["title"] = $title;
 
 				array_push($entries, $entry);
 			}
@@ -3737,7 +3864,10 @@
 									$rv .= "<p><a target=\"_blank\"
 									href=\"".htmlspecialchars($entry["url"])."\"
 									>" .htmlspecialchars($entry["url"]) . "</a></p>";
+								}
 
+								if ($entry['title']) {
+									$rv.= "<div class=\"enclosure_title\">${entry['title']}</div>";
 								}
 						}
 					}
@@ -3754,7 +3884,12 @@
 				"<option value=''>" . __('Attachments')."</option>";
 
 			foreach ($entries as $entry) {
-				$rv .= "<option value=\"".htmlspecialchars($entry["url"])."\">" . htmlspecialchars($entry["filename"]) . "</option>";
+				if ($entry["title"])
+					$title = "&mdash; " . truncate_string($entry["title"], 30);
+				else
+					$title = "";
+
+				$rv .= "<option value=\"".htmlspecialchars($entry["url"])."\">" . htmlspecialchars($entry["filename"]) . "$title</option>";
 
 			};
 
@@ -3788,7 +3923,7 @@
 	 * @return string Absolute URL
 	 */
 	function rewrite_relative_url($url, $rel_url) {
-		if (strpos($rel_url, "magnet:") === 0) {
+		if (strpos($rel_url, ":") !== false) {
 			return $rel_url;
 		} else if (strpos($rel_url, "://") !== false) {
 			return $rel_url;
@@ -3903,52 +4038,6 @@
 
 	}
 
-	function rewrite_urls($html) {
-		libxml_use_internal_errors(true);
-
-		$charset_hack = '<head>
-			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-		</head>';
-
-		$doc = new DOMDocument();
-		$doc->loadHTML($charset_hack . $html);
-		$xpath = new DOMXPath($doc);
-
-		$entries = $xpath->query('//*/text()');
-
-		foreach ($entries as $entry) {
-			if (strstr($entry->wholeText, "://") !== false) {
-				$text = preg_replace("/((?<!=.)((http|https|ftp)+):\/\/[^ ,!]+)/i",
-					"<a target=\"_blank\" href=\"\\1\">\\1</a>", $entry->wholeText);
-
-				if ($text != $entry->wholeText) {
-					$cdoc = new DOMDocument();
-					$cdoc->loadHTML($charset_hack . $text);
-
-
-					foreach ($cdoc->childNodes as $cnode) {
-						$cnode = $doc->importNode($cnode, true);
-
-						if ($cnode) {
-							$entry->parentNode->insertBefore($cnode);
-						}
-					}
-
-					$entry->parentNode->removeChild($entry);
-
-				}
-			}
-		}
-
-		$node = $doc->getElementsByTagName('body')->item(0);
-
-		// http://tt-rss.org/forum/viewtopic.php?f=1&t=970
-		if ($node)
-			return $doc->saveXML($node);
-		else
-			return $html;
-	}
-
 	function filter_to_sql($filter, $owner_uid) {
 		$query = array();
 
@@ -3958,6 +4047,7 @@
 			$reg_qpart = "REGEXP";
 
 		foreach ($filter["rules"] AS $rule) {
+			$rule['reg_exp'] = str_replace('/', '\/', $rule["reg_exp"]);
 			$regexp_valid = preg_match('/' . $rule['reg_exp'] . '/',
 				$rule['reg_exp']) !== FALSE;
 
@@ -4014,6 +4104,8 @@
 
 					$qpart .= " AND $cat_qpart";
 				}
+
+				$qpart .= " AND feed_id IS NOT NULL";
 
 				array_push($query, "($qpart)");
 
@@ -4092,7 +4184,9 @@
 		return in_array($interface, class_implements($class));
 	}
 
-	function geturl($url){
+	function geturl($url, $depth = 0){
+
+		if ($depth == 20) return $url;
 
 		if (!function_exists('curl_init'))
 			return user_error('CURL Must be installed for geturl function to work. Ask your host to enable it or uncomment extension=php_curl.dll in php.ini', E_USER_ERROR);
@@ -4119,6 +4213,10 @@
 		curl_setopt($curl, CURLOPT_TIMEOUT, 60);
 		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
 
+		if ((OPENSSL_VERSION_NUMBER >= 0x0090808f) && (OPENSSL_VERSION_NUMBER < 0x10000000)) {
+			curl_setopt($curl, CURLOPT_SSLVERSION, 3);
+		}
+
 		$html = curl_exec($curl);
 
 		$status = curl_getinfo($curl);
@@ -4131,7 +4229,7 @@
 				preg_match("/(Location:|URI:)[^(\n)]*/", $header, $matches);
 				$url = trim(str_replace($matches[1],"",$matches[0]));
 				$url_parsed = parse_url($url);
-				return (isset($url_parsed))? geturl($url):'';
+				return (isset($url_parsed))? geturl($url, $depth + 1):'';
 			}
 
 			global $fetch_last_error;
@@ -4236,16 +4334,21 @@
 		}
 
 		function ngettext(msg1, msg2, n) {
-			return (parseInt(n) > 1) ? msg2 : msg1;
+			return __((parseInt(n) > 1) ? msg2 : msg1);
 		}';
 
 		$l10n = _get_reader();
 
 		for ($i = 0; $i < $l10n->total; $i++) {
 			$orig = $l10n->get_original_string($i);
-			$translation = __($orig);
-
-			print T_js_decl($orig, $translation);
+			if(strpos($orig, "\000") !== FALSE) { // Plural forms
+				$key = explode(chr(0), $orig);
+				print T_js_decl($key[0], _ngettext($key[0], $key[1], 1)); // Singular
+				print T_js_decl($key[1], _ngettext($key[0], $key[1], 2)); // Plural
+			} else {
+				$translation = __($orig);
+				print T_js_decl($orig, $translation);
+			}
 		}
 	}
 

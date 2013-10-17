@@ -299,7 +299,7 @@ div.error {
 }
 
 div.warning img, div.notice img, div.error img {
-	margin-right : 4px;
+	margin : 4px;
 	vertical-align : middle;
 }
 
@@ -318,10 +318,6 @@ ul.nomarks {
 div.prefHelp {
 	color : #555;
 	padding : 5px;
-}
-
-span.feed_error {
-	color : red;
 }
 
 .insensitive {
@@ -356,9 +352,9 @@ div#headlines-toolbar span.r {
 	text-align : right;
 }	
 
-div#headlines-toolbar span.r span.error {
+#headlines-toolbar span.r .error a {
 	color : red;
-} 
+}
 
 div#headlines-toolbar span.r a {
 	color : #555;
@@ -386,7 +382,7 @@ span.hlLabelRef {
 
 div.postHeader div.postDate {
 	text-align : right;
-	color : #555;
+	color : #909090;
 	float : right;
 }
 
@@ -606,20 +602,15 @@ div#headlines-frame.wide .hlTitle {
 	white-space : normal;
 }
 
-.hlContentH a, .hlContentH span {
-	color : #00cc00;
+.hl a.title.high, span.hlContent.high .contentPreview {
+	color : #00aa00;
+}
+.hl.Unread a.title.high, .hl.Unread span.hlContent.high .contentPreview {
+	color : #00dd00;
 }
 
-.hlContentL a, .hlContentL span {
-	color : #909090;
-	text-decoration : line-through;
-}
-
-span.titleWrapH, span.titleWrapH a {
-	color : #00cc00;
-}
-
-span.titleWrapL, span.titleWrapL a {
+.hl a.title.low, span.hlContent.low .contentPreview,
+.hl.Unread a.title.low, .hl.Unread span.hlContent.low .contentPreview {
 	color : #909090;
 	text-decoration : line-through;
 }
@@ -665,29 +656,18 @@ div.dlgButtons {
 }
 
 span.labelColorIndicator {
-	height : 14px;
-	width : 14px;
+	height : 16px;
+	width : 16px;
+	border-radius : 4px;
 	line-height : 14px;
+	vertical-align : middle;
 	font-size : 9px;
 	display : inline-block;
-	border : 1px solid black;
+	border : 1px solid #ccc;
 	background-color : #fff7d5;	
 	color : #063064;
 	text-align : center;
-	margin-right : 2px;
-}
-
-span.labelColorIndicator2 {
-	height : 14px;
-	width : 14px;
-	font-size : 9px;
-	display : inline-block;
-	border : 1px solid black;
-	background-color : #fff7d5;	
-	color : #063064;
-	text-align : center;
-	margin-right : 2px;
-	vertical-align : bottom;
+	box-shadow : 0px 0px 1px 0px rgba(0,0,0,0.1);
 }
 
 div#cmdline {
@@ -865,8 +845,12 @@ div.fatalError textarea {
 	overflow : auto;
 }
 
-.dijitTreeLabel.Unread {
+#feedTree .dijitTreeRow .dijitTreeLabel.Unread {
 	font-weight : bold;
+}
+
+#feedTree .dijitTreeRow.Error .dijitTreeLabel {
+	color : red;
 }
 
 .dijitTreeLabel {
@@ -899,6 +883,7 @@ div.fatalError textarea {
 img.feedIcon, img.tinyFeedIcon {
 	width : 16px;
 	height : 16px;
+	line-height : 16px;
 	vertical-align : middle;
 	display : inline-block;
 }
@@ -1009,6 +994,10 @@ span.collapseBtn {
 
 div.postContent p {
 	max-width : 650px;
+	text-align : justify;
+	-webkit-hyphens: auto;
+	-moz-hyphens: auto;
+	hyphens: auto;
 }
 
 div.postContent iframe {
@@ -1025,12 +1014,46 @@ body#ttrssZoom {
 	margin-left : auto;
 	margin-right : auto;
 	padding : 20px;
-	max-width : 800px;
+	max-width : 670px;
 	background : #f9fbff;
+}
+
+body#ttrssZoom div.postHeader div.postFeedTitle {
+	float : left;
+	text-align : right;
+	padding-left : 0px;
+	font-size : 10px;
+}
+
+body#ttrssZoom div.postHeader a.postComments {
+	text-align : right;
+	padding-left : 0px;
+	font-size : 10px;
+}
+
+body#ttrssZoom div.postHeader div.postDate {
+	float : none;
+	text-align : right;
+	padding-left : 0px;
+	color : #777;
+	font-size : 10px;
+}
+
+body#ttrssZoom div.postHeader div.postTags {
+	color : #777;
+	font-size : 10px;
+}
+
+body#ttrssZoom div.postHeader div.postTitle {
+	white-space : normal;
 }
 
 body#ttrssZoom div.postContent p {
 	max-width : 650px;
+	text-align : justify;
+	-webkit-hyphens: auto;
+	-moz-hyphens: auto;
+	hyphens: auto;
 }
 
 body#ttrssZoom div.postHeader {
@@ -1075,15 +1098,21 @@ div.hl.active {
 	margin-right : 25px;
 }
 
+#feedTree img.feedIcon {
+	position : relative;
+	top : -2px;
+}
+
 body#ttrssMain #feedTree .dijitTreeRow {
 	padding : 2px 0px 2px;
+	height : 22px;
 	border-width : 1px;
 	border-color : transparent;
 	color : #333;
 }
 
-.dijitFolderClosed,
-.dijitFolderOpened {
+body#ttrssMain #feedTree .dijitFolderClosed,
+body#ttrssMain #feedTree .dijitFolderOpened {
 	display : none;
 }
 
@@ -1093,6 +1122,11 @@ body#ttrssMain #feedTree .dijitTreeRow {
 
 body#ttrssMain #feedTree .dijitTreeIsRoot > .dijitTreeRow > .dijitTreeExpando {
 	margin-left : 5px;
+}
+
+body#ttrssMain #feedTree .dijitTreeExpando {
+	margin-top : 0px;
+	opacity : 0.6;
 }
 
 body#ttrssMain #feedTree .dijitTreeNode {
@@ -1123,10 +1157,12 @@ body#ttrssMain #feedTree {
 	border-radius : 4px;
 	vertical-align : middle;
 	float : right;
-	margin-right : 5px;
 	position : relative;
-	top : 2px;
+	line-height : 14px;
+	margin-right : 4px;
+	margin-top : 3px;
 	min-width : 23px;
+	height : 14px;
 }
 
 #feedTree .dijitTreeRow {
@@ -1146,5 +1182,19 @@ body#ttrssPrefs hr {
 
 .dijitTreeRowSelected .dijitTreeLabel {
 	text-shadow : 1px 1px 2px #fff;
+}
+
+#feedTree img[src*='indicator_white.gif'] {
+	position : relative;
+	top : -2px;
+}
+
+span.highlight {
+	background-color : #ffff00;
+	color : #cc90cc;
+}
+
+div.enclosure_title {
+
 }
 

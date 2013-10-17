@@ -467,14 +467,6 @@ class RPC extends Handler_Protected {
 		print_feed_cat_select("cat_id", $id, '');
 	}
 
-	// Silent
-	function clearArticleKeys() {
-		$this->dbh->query("UPDATE ttrss_user_entries SET uuid = '' WHERE
-			owner_uid = " . $_SESSION["uid"]);
-
-		return;
-	}
-
 	function setpanelmode() {
 		$wide = (int) $_REQUEST["wide"];
 
@@ -484,7 +476,8 @@ class RPC extends Handler_Protected {
 		print json_encode(array("wide" => $wide));
 	}
 
-	function updaterandomfeed() {
+	static function updaterandomfeed_real($dbh) {
+
 		// Test if the feed need a update (update interval exceded).
 		if (DB_TYPE == "pgsql") {
 			$update_limit_qpart = "AND ((
@@ -515,16 +508,24 @@ class RPC extends Handler_Protected {
 
 		$random_qpart = sql_random_function();
 
+		// we could be invoked from public.php with no active session
+		if ($_SESSION["uid"]) {
+			$owner_check_qpart = "AND ttrss_feeds.owner_uid = '".$_SESSION["uid"]."'";
+		} else {
+			$owner_check_qpart = "";
+		}
+
 		// We search for feed needing update.
-		$result = $this->dbh->query("SELECT ttrss_feeds.feed_url,ttrss_feeds.id
+		$result = $dbh->query("SELECT ttrss_feeds.feed_url,ttrss_feeds.id
 			FROM
 				ttrss_feeds, ttrss_users, ttrss_user_prefs
 			WHERE
 				ttrss_feeds.owner_uid = ttrss_users.id
 				AND ttrss_users.id = ttrss_user_prefs.owner_uid
 				AND ttrss_user_prefs.pref_name = 'DEFAULT_UPDATE_INTERVAL'
-				AND ttrss_feeds.owner_uid = ".$_SESSION["uid"]."
-				$update_limit_qpart $updstart_thresh_qpart
+				$owner_check_qpart
+				$update_limit_qpart
+				$updstart_thresh_qpart
 			ORDER BY $random_qpart LIMIT 30");
 
 		$feed_id = -1;
@@ -535,7 +536,7 @@ class RPC extends Handler_Protected {
 
 		$tstart = time();
 
-		while ($line = $this->dbh->fetch_assoc($result)) {
+		while ($line = $dbh->fetch_assoc($result)) {
 			$feed_id = $line["id"];
 
 			if (time() - $tstart < ini_get("max_execution_time") * 0.7) {
@@ -557,6 +558,10 @@ class RPC extends Handler_Protected {
 			print json_encode(array("message" => "NOTHING_TO_UPDATE"));
 		}
 
+	}
+
+	function updaterandomfeed() {
+		RPC::updaterandomfeed_real($this->dbh);
 	}
 
 	private function markArticlesById($ids, $cmode) {

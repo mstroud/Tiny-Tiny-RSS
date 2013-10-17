@@ -573,13 +573,17 @@ function init_second_stage() {
 
 			var tmph = dojo.connect(dijit.byId('feeds-holder'), 'resize',
 				function (args) {
-					setCookie("ttrss_fh_width", args.w, getInitParam("cookie_lifetime"));
+					if (args && args.w >= 0) {
+						setCookie("ttrss_fh_width", args.w, getInitParam("cookie_lifetime"));
+					}
 			});
 
 			var tmph = dojo.connect(dijit.byId('content-insert'), 'resize',
 				function (args) {
-					setCookie("ttrss_ci_width", args.w, getInitParam("cookie_lifetime"));
-					setCookie("ttrss_ci_height", args.h, getInitParam("cookie_lifetime"));
+					if (args && args.w >= 0 && args.h >= 0) {
+						setCookie("ttrss_ci_width", args.w, getInitParam("cookie_lifetime"));
+						setCookie("ttrss_ci_height", args.h, getInitParam("cookie_lifetime"));
+					}
 			});
 
 		});
@@ -847,11 +851,16 @@ function hotkey_handler(e) {
 
 		var keycode = false;
 		var shift_key = false;
+		var ctrl_key = false;
+		var alt_key = false;
+		var meta_key = false;
 
 		var cmdline = $('cmdline');
 
 		shift_key = e.shiftKey;
 		ctrl_key = e.ctrlKey;
+		alt_key = e.altKey;
+		meta_key = e.metaKey;
 
 		if (window.event) {
 			keycode = window.event.keyCode;
@@ -893,6 +902,8 @@ function hotkey_handler(e) {
 		// ensure ^*char notation
 		if (shift_key) hotkey = "*" + hotkey;
 		if (ctrl_key) hotkey = "^" + hotkey;
+		if (alt_key) hotkey = "+" + hotkey;
+		if (meta_key) hotkey = "%" + hotkey;
 
 		hotkey = hotkey_prefix ? hotkey_prefix + " " + hotkey : hotkey;
 		hotkey_prefix = false;

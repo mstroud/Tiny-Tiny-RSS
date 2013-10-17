@@ -175,6 +175,7 @@
 				while ($tline = db_fetch_assoc($tmp_result)) {
 					if($debug) _debug(" => " . $tline["last_updated"] . ", " . $tline["id"] . " " . $tline["owner_uid"]);
 					update_rss_feed($tline["id"], true);
+					_debug_suppress(false);
 					++$nf;
 				}
 			}
@@ -194,6 +195,7 @@
 
 		$debug_enabled = defined('DAEMON_EXTENDED_DEBUG') || $_REQUEST['xdebug'];
 
+		_debug_suppress(!$debug_enabled);
 		_debug("start", $debug_enabled);
 
 		$result = db_query("SELECT id,update_interval,auth_login,
@@ -353,6 +355,11 @@
 			$rss = new FeedParser($feed_data);
 			$rss->init();
 		}
+
+		require_once "lib/languagedetect/LanguageDetect.php";
+
+		$lang = new Text_LanguageDetect();
+		$lang->setNameMode(2);
 
 //		print_r($rss);
 
@@ -565,6 +572,17 @@
 					print "\n";
 				}
 
+				$entry_language = $lang->detect($entry_title . " " . $entry_content, 1);
+
+				if (count($entry_language) > 0) {
+					$entry_language = array_keys($entry_language);
+					$entry_language = db_escape_string(substr($entry_language[0], 0, 2));
+
+					_debug("detected language: $entry_language", $debug_enabled);
+				} else{
+					$entry_language = "";
+				}
+
 				$entry_comments = $item->get_comments_url();
 				$entry_author = $item->get_author();
 
@@ -628,7 +646,11 @@
 					"tags" => $entry_tags,
 					"plugin_data" => $entry_plugin_data,
 					"author" => $entry_author,
-					"stored" => $stored_article);
+					"stored" => $stored_article,
+					"feed" => array("id" => $feed,
+						"fetch_url" => $fetch_url,
+						"site_url" => $site_url)
+					);
 
 				foreach ($pluginhost->get_hooks(PluginHost::HOOK_ARTICLE_FILTER) as $plugin) {
 					$article = $plugin->hook_article_filter($article);
@@ -671,13 +693,13 @@
 							updated,
 							content,
 							content_hash,
-							cached_content,
 							no_orig_date,
 							date_updated,
 							date_entered,
 							comments,
 							num_comments,
 							plugin_data,
+							lang,
 							author)
 						VALUES
 							('$entry_title',
@@ -686,13 +708,13 @@
 							'$entry_timestamp_fmt',
 							'$entry_content',
 							'$content_hash',
-							'',
 							$no_orig_date,
 							NOW(),
 							'$date_feed_processed',
 							'$entry_comments',
 							'$num_comments',
 							'$entry_plugin_data',
+							'$entry_language',
 							'$entry_author')");
 
 					$article_labels = array();
@@ -938,7 +960,7 @@
 				if (is_array($encs)) {
 					foreach ($encs as $e) {
 						$e_item = array(
-							$e->link, $e->type, $e->length);
+							$e->link, $e->type, $e->length, $e->title);
 						array_push($enclosures, $e_item);
 					}
 				}
@@ -950,10 +972,14 @@
 
 				db_query("BEGIN");
 
+//				debugging
+//				db_query("DELETE FROM ttrss_enclosures WHERE post_id = '$entry_ref_id'");
+
 				foreach ($enclosures as $enc) {
 					$enc_url = db_escape_string($enc[0]);
 					$enc_type = db_escape_string($enc[1]);
 					$enc_dur = db_escape_string($enc[2]);
+					$enc_title = db_escape_string($enc[3]);
 
 					$result = db_query("SELECT id FROM ttrss_enclosures
 						WHERE content_url = '$enc_url' AND post_id = '$entry_ref_id'");
@@ -961,7 +987,7 @@
 					if (db_num_rows($result) == 0) {
 						db_query("INSERT INTO ttrss_enclosures
 							(content_url, content_type, title, duration, post_id) VALUES
-							('$enc_url', '$enc_type', '', '$enc_dur', '$entry_ref_id')");
+							('$enc_url', '$enc_type', '$enc_title', '$enc_dur', '$entry_ref_id')");
 					}
 				}
 
@@ -1062,11 +1088,6 @@
 				_debug("article processed", $debug_enabled);
 			}
 
-			if (!$last_updated) {
-				_debug("new feed, catching it up...", $debug_enabled);
-				catchup_feed($feed, false, $owner_uid);
-			}
-
 			_debug("purging feed...", $debug_enabled);
 
 			purge_feed($feed, 0, $debug_enabled);
@@ -1123,16 +1144,15 @@
 					}
 				}
 
-				if (file_exists($local_filename)) {
+				/* if (file_exists($local_filename)) {
 					$entry->setAttribute('src', SELF_URL_PATH . '/image.php?url=' .
 						base64_encode($src));
-				}
+				} */
 			}
 		}
 
-		$node = $doc->getElementsByTagName('body')->item(0);
-
-		return $doc->saveXML($node);
+		//$node = $doc->getElementsByTagName('body')->item(0);
+		//return $doc->saveXML($node);
 	}
 
 	function expire_error_log($debug) {
@@ -1370,5 +1390,8 @@
 		$rc = cleanup_tags( 14, 50000);
 
 		_debug("Cleaned $rc cached tags.");
+
+		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_HOUSE_KEEPING, "hook_house_keeping", "");
+
 	}
 ?>
