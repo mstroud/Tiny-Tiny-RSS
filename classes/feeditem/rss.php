@@ -59,16 +59,21 @@ class FeedItem_RSS extends FeedItem_Common {
 	}
 
 	function get_content() {
-		$content = $this->xpath->query("content:encoded", $this->elem)->item(0);
+		$contentA = $this->xpath->query("content:encoded", $this->elem)->item(0);
+		$contentB = $this->elem->getElementsByTagName("description")->item(0);
 
-		if ($content) {
-			return $content->nodeValue;
+		if ($contentA && !$contentB) {
+			return $contentA->nodeValue;
 		}
 
-		$content = $this->elem->getElementsByTagName("description")->item(0);
 
-		if ($content) {
-			return $content->nodeValue;
+		if ($contentB && !$contentA) {
+			return $contentB->nodeValue;
+		}
+
+		if ($contentA && $contentB) {
+			return mb_strlen($contentA->nodeValue) > mb_strlen($contentB->nodeValue) ?
+				$contentA->nodeValue : $contentB->nodeValue;
 		}
 	}
 
@@ -112,7 +117,7 @@ class FeedItem_RSS extends FeedItem_Common {
 			array_push($encs, $enc);
 		}
 
-		$enclosures = $this->xpath->query("media:content | media:group/media:content", $this->elem);
+		$enclosures = $this->xpath->query("media:content", $this->elem);
 
 		foreach ($enclosures as $enclosure) {
 			$enc = new FeedEnclosure();
@@ -123,6 +128,40 @@ class FeedItem_RSS extends FeedItem_Common {
 
 			$desc = $this->xpath->query("media:description", $enclosure)->item(0);
 			if ($desc) $enc->title = strip_tags($desc->nodeValue);
+
+			array_push($encs, $enc);
+		}
+
+
+		$enclosures = $this->xpath->query("media:group", $this->elem);
+
+		foreach ($enclosures as $enclosure) {
+			$enc = new FeedEnclosure();
+
+			$content = $this->xpath->query("media:content", $enclosure)->item(0);
+
+			$enc->type = $content->getAttribute("type");
+			$enc->link = $content->getAttribute("url");
+			$enc->length = $content->getAttribute("length");
+
+			$desc = $this->xpath->query("media:description", $content)->item(0);
+			if ($desc) {
+				$enc->title = strip_tags($desc->nodeValue);
+			} else {
+				$desc = $this->xpath->query("media:description", $enclosure)->item(0);
+				if ($desc) $enc->title = strip_tags($desc->nodeValue);
+			}
+
+			array_push($encs, $enc);
+		}
+
+		$enclosures = $this->xpath->query("media:thumbnail", $this->elem);
+
+		foreach ($enclosures as $enclosure) {
+			$enc = new FeedEnclosure();
+
+			$enc->type = "image/generic";
+			$enc->link = $enclosure->getAttribute("url");
 
 			array_push($encs, $enc);
 		}
