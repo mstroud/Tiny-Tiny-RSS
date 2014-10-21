@@ -2209,7 +2209,7 @@
 		return in_array($interface, class_implements($class));
 	}
 
-	function geturl($url, $depth = 0){
+	function geturl($url, $depth = 0, $nobody = true){
 
 		if ($depth == 20) return $url;
 
@@ -2230,7 +2230,7 @@
 		curl_setopt($curl, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0 Firefox/5.0');
 		curl_setopt($curl, CURLOPT_HTTPHEADER, $header);
 		curl_setopt($curl, CURLOPT_HEADER, true);
-		curl_setopt($curl, CURLOPT_NOBODY, true);
+		curl_setopt($curl, CURLOPT_NOBODY, $nobody);
 		curl_setopt($curl, CURLOPT_REFERER, $url);
 		curl_setopt($curl, CURLOPT_ENCODING, 'gzip,deflate');
 		curl_setopt($curl, CURLOPT_AUTOREFERER, true);
@@ -2243,15 +2243,18 @@
 			curl_setopt($curl, CURLOPT_PROXY, _CURL_HTTP_PROXY);
 		}
 
-		if ((OPENSSL_VERSION_NUMBER >= 0x0090808f) && (OPENSSL_VERSION_NUMBER < 0x10000000)) {
-			curl_setopt($curl, CURLOPT_SSLVERSION, 3);
-		}
-
 		$html = curl_exec($curl);
 
 		$status = curl_getinfo($curl);
 
 		if($status['http_code']!=200){
+
+			// idiot site not allowing http head
+			if($status['http_code'] == 405) {
+				curl_close($curl);
+				return geturl($url, $depth +1, false);
+			}
+
 			if($status['http_code'] == 301 || $status['http_code'] == 302) {
 				curl_close($curl);
 				list($header) = explode("\r\n\r\n", $html, 2);
@@ -2287,19 +2290,26 @@
 			if (!isset($_GET['debug'])) {
 				$cached_file = CACHE_DIR . "/js/".basename($js).".js";
 
-				if (file_exists($cached_file) &&
-						is_readable($cached_file) &&
-						filemtime($cached_file) >= filemtime("js/$js.js")) {
+				if (file_exists($cached_file) && is_readable($cached_file) && filemtime($cached_file) >= filemtime("js/$js.js")) {
 
-					$rv .= file_get_contents($cached_file);
+					list($header, $contents) = explode("\n", file_get_contents($cached_file), 2);
 
-				} else {
-					$minified = JShrink\Minifier::minify(file_get_contents("js/$js.js"));
-					file_put_contents($cached_file, $minified);
-					$rv .= $minified;
+					if ($header && $contents) {
+						list($htag, $hversion) = explode(":", $header);
+
+						if ($htag == "tt-rss" && $hversion == VERSION) {
+							$rv .= $contents;
+							continue;
+						}
+					}
 				}
+
+				$minified = JShrink\Minifier::minify(file_get_contents("js/$js.js"));
+				file_put_contents($cached_file, "tt-rss:" . VERSION . "\n" . $minified);
+				$rv .= $minified;
+
 			} else {
-				$rv .= file_get_contents("js/$js.js");
+				$rv .= file_get_contents("js/$js.js"); // no cache in debug mode
 			}
 		}
 
@@ -2390,9 +2400,4 @@
 		return LABEL_BASE_INDEX - 1 + abs($feed);
 	}
 
-	function format_libxml_error($error) {
-		return T_sprintf("LibXML error %s at line %d (column %d): %s",
-				$error->code, $error->line, $error->column,
-				$error->message);
-	}
 ?>

@@ -1,11 +1,11 @@
 <?php
-class Af_NatGeo extends Plugin {
+class Af_ElReg extends Plugin {
 
 	private $host;
 
 	function about() {
 		return array(1.0,
-			"Fetch content of National Geographic feeds",
+			"Fetch content of The Register feeds",
 			"fox");
 	}
 
@@ -16,9 +16,7 @@ class Af_NatGeo extends Plugin {
 	}
 
 	function hook_article_filter($article) {
-		$owner_uid = $article["owner_uid"];
-
-		if (strpos($article["link"], "nationalgeographic.com") !== FALSE) {
+		if (strpos($article["link"], "theregister.co.uk") !== FALSE) {
 
 				$doc = new DOMDocument();
 				@$doc->loadHTML(fetch_file_contents($article["link"]));
@@ -28,13 +26,13 @@ class Af_NatGeo extends Plugin {
 				if ($doc) {
 					$xpath = new DOMXPath($doc);
 
-					$basenode = $doc->getElementById("content_mainA");
-
-					$trash = $xpath->query("//*[@class='aside' or @id='livefyre' or @id='powered_by_livefyre' or @class='social_buttons']");
+					$trash = $xpath->query("//*[@class='wptl top' or @class='wptl btm']");
 
 					foreach ($trash as $t) {
 						$t->parentNode->removeChild($t);
 					}
+
+					$basenode = $doc->getElementById("body");
 
 					if ($basenode) {
 						$article["content"] = $doc->saveXML($basenode);
