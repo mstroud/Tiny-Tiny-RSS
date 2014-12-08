@@ -826,6 +826,21 @@
 
 	}
 
+	function iframe_whitelisted($entry) {
+		$whitelist = array("youtube.com", "youtu.be", "vimeo.com");
+
+		@$src = parse_url($entry->getAttribute("src"), PHP_URL_HOST);
+
+		if ($src) {
+			foreach ($whitelist as $w) {
+				if ($src == $w || $src == "www.$w")
+					return true;
+			}
+		}
+
+		return false;
+	}
+
 	function sanitize($str, $force_remove_images = false, $owner = false, $site_url = false, $highlight_words = false, $article_id = false) {
 		if (!$owner) $owner = $_SESSION["uid"];
 
@@ -894,8 +909,15 @@
 
 		$entries = $xpath->query('//iframe');
 		foreach ($entries as $entry) {
-			$entry->setAttribute('sandbox', 'allow-scripts');
-
+			if (!iframe_whitelisted($entry)) {
+				$entry->setAttribute('sandbox', 'allow-scripts');
+			} else {
+				if ($_SERVER['HTTPS'] == "on") {
+					$entry->setAttribute("src",
+						str_replace("http://", "https://",
+							$entry->getAttribute("src")));
+				}
+			}
 		}
 
 		$allowed_elements = array('a', 'address', 'audio', 'article', 'aside',
@@ -1958,8 +1980,8 @@
 	}
 
 	function getLastArticleId() {
-		$result = db_query("SELECT MAX(ref_id) AS id FROM ttrss_user_entries
-			WHERE owner_uid = " . $_SESSION["uid"]);
+		$result = db_query("SELECT ref_id AS id FROM ttrss_user_entries
+			WHERE owner_uid = " . $_SESSION["uid"] . " ORDER BY ref_id DESC LIMIT 1");
 
 		if (db_num_rows($result) == 1) {
 			return db_fetch_result($result, 0, "id");
