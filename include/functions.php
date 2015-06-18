@@ -1,6 +1,6 @@
 <?php
 	define('EXPECTED_CONFIG_VERSION', 26);
-	define('SCHEMA_VERSION', 126);
+	define('SCHEMA_VERSION', 127);
 
 	define('LABEL_BASE_INDEX', -1024);
 	define('PLUGIN_FEED_BASE_INDEX', -128);
@@ -67,6 +67,7 @@
 		$tr = array(
 					"auto"  => "Detect automatically",
 					"ar_SA" => "العربيّة (Arabic)",
+					"bg_BG" => "Bulgarian",
 					"da_DA" => "Dansk",
 					"ca_CA" => "Català",
 					"cs_CZ" => "Česky",
@@ -804,10 +805,6 @@
 	// user preferences are checked on every login, not here
 
 	function initialize_user($uid) {
-
-		db_query("insert into ttrss_feeds (owner_uid,title,feed_url)
-			values ('$uid', 'Tiny Tiny RSS: New Releases',
-			'http://tt-rss.org/releases.rss')");
 
 		db_query("insert into ttrss_feeds (owner_uid,title,feed_url)
 			values ('$uid', 'Tiny Tiny RSS: Forum',
@@ -1746,7 +1743,7 @@
 			$feed_id = db_fetch_result($result, 0, "id");
 
 			if ($feed_id) {
-				update_rss_feed($feed_id, true);
+				set_basic_feed_info($feed_id);
 			}
 
 			return array("code" => 1);

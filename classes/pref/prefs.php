@@ -23,7 +23,6 @@ class Pref_Prefs extends Handler_Protected {
 
 		$this->pref_help = array(
 			"ALLOW_DUPLICATE_POSTS" => array(__("Allow duplicate articles"), ""),
-			"AUTO_ASSIGN_LABELS" => array(__("Assign articles to labels automatically"), ""),
 			"BLACKLISTED_TAGS" => array(__("Blacklisted tags"), __("When auto-detecting tags in articles these tags will not be applied (comma-separated list).")),
 			"CDM_AUTO_CATCHUP" => array(__("Automatically mark articles as read"), __("This option enables marking articles as read automatically while you scroll article list.")),
 			"CDM_EXPANDED" => array(__("Automatically expand articles in combined mode"), ""),
@@ -125,21 +124,6 @@ class Pref_Prefs extends Handler_Protected {
 			print "PREFS_NEED_RELOAD";
 		} else {
 			print __("The configuration was saved.");
-		}
-	}
-
-	function getHelp() {
-
-		$pref_name = $this->dbh->escape_string($_REQUEST["pn"]);
-
-		$result = $this->dbh->query("SELECT help_text FROM ttrss_prefs
-			WHERE pref_name = '$pref_name'");
-
-		if ($this->dbh->num_rows($result) > 0) {
-			$help_text = $this->dbh->fetch_result($result, 0, "help_text");
-			print $help_text;
-		} else {
-			printf(__("Unknown option: %s"), $pref_name);
 		}
 	}
 
@@ -571,8 +555,10 @@ class Pref_Prefs extends Handler_Protected {
 
 			} else if ($pref_name == "USER_CSS_THEME") {
 
-				$themes = array_filter(array_map("basename", glob("themes/*.css")),
-					"theme_valid");
+				$themes = array_merge(glob("themes/*.css"), glob("themes.local/*.css"));
+				$themes = array_map("basename", $themes);
+				$themes = array_filter($themes, "theme_valid");
+				asort($themes);
 
 				print_select($pref_name, $value, $themes,
 					'dojoType="dijit.form.Select"');

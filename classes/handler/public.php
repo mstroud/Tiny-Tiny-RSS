@@ -101,8 +101,7 @@ class Handler_Public extends Handler {
 
 				$tpl->setVariable('ARTICLE_ID',
 					htmlspecialchars($orig_guid ? $line['link'] :
-						get_self_url_prefix() .
-							"/public.php?url=" . urlencode($line['link'])), true);
+							$this->make_article_tag_uri($line['id'], $line['date_entered'])), true);
 				$tpl->setVariable('ARTICLE_LINK', htmlspecialchars($line['link']), true);
 				$tpl->setVariable('ARTICLE_TITLE', htmlspecialchars($line['title']), true);
 				$tpl->setVariable('ARTICLE_EXCERPT', $line["content_preview"], true);
@@ -125,7 +124,7 @@ class Handler_Public extends Handler {
 
 				$tpl->setVariable('ARTICLE_AUTHOR', htmlspecialchars($line['author']), true);
 
-				$tpl->setVariable('ARTICLE_SOURCE_LINK', htmlspecialchars($line['site_url']), true);
+				$tpl->setVariable('ARTICLE_SOURCE_LINK', htmlspecialchars($line['site_url'] ? $line["site_url"] : get_self_url_prefix()), true);
 				$tpl->setVariable('ARTICLE_SOURCE_TITLE', htmlspecialchars($line['feed_title'] ? $line['feed_title'] : $feed_title), true);
 
 				$tags = get_article_tags($line["id"], $owner_uid);
@@ -140,7 +139,7 @@ class Handler_Public extends Handler {
 				foreach ($enclosures as $e) {
 					$type = htmlspecialchars($e['content_type']);
 					$url = htmlspecialchars($e['content_url']);
-					$length = $e['duration'];
+					$length = $e['duration'] ? $e['duration'] : 1;
 
 					$tpl->setVariable('ARTICLE_ENCLOSURE_URL', $url, true);
 					$tpl->setVariable('ARTICLE_ENCLOSURE_TYPE', $type, true);
@@ -707,7 +706,7 @@ class Handler_Public extends Handler {
 
 	function index() {
 		header("Content-Type: text/plain");
-		print json_encode(array("error" => array("code" => 7)));
+		print error_json(13);
 	}
 
 	function forgotpass() {
@@ -1002,5 +1001,42 @@ class Handler_Public extends Handler {
 		<?php
 	}
 
+	function cached_image() {
+		@$hash = basename($_GET['hash']);
+
+		if ($hash) {
+
+			$filename = CACHE_DIR . '/images/' . $hash . '.png';
+
+			if (file_exists($filename)) {
+				/* See if we can use X-Sendfile */
+				$xsendfile = false;
+				if (function_exists('apache_get_modules') &&
+				    array_search('mod_xsendfile', apache_get_modules()))
+					$xsendfile = true;
+
+				if ($xsendfile) {
+					header("X-Sendfile: $filename");
+					header("Content-type: application/octet-stream");
+					header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+				} else {
+					header("Content-type: image/png");
+					$stamp = gmdate("D, d M Y H:i:s", filemtime($filename)). " GMT";
+					header("Last-Modified: $stamp", true);
+					readfile($filename);
+				}
+			} else {
+				header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
+				echo "File not found.";
+			}
+		}
+	}
+
+	private function make_article_tag_uri($id, $timestamp) {
+
+		$timestamp = date("Y-m-d", strtotime($timestamp));
+
+		return "tag:" . parse_url(get_self_url_prefix(), PHP_URL_HOST) . ",$timestamp:/$id";
+	}
 }
 ?>

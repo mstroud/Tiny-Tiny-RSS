@@ -203,6 +203,26 @@
 		return array($prefixes, $hotkeys);
 	}
 
+	function check_for_update() {
+		if (defined("GIT_VERSION_TIMESTAMP")) {
+			$content = @fetch_file_contents("http://tt-rss.org/version.json");
+
+			if ($content) {
+				$content = json_decode($content, true);
+
+				if ($content && isset($content["changeset"])) {
+					if ((int)GIT_VERSION_TIMESTAMP < (int)$content["changeset"]["timestamp"] &&
+						GIT_VERSION_HEAD != $content["changeset"]["id"]) {
+
+						return $content["changeset"]["id"];
+					}
+				}
+			}
+		}
+
+		return "";
+	}
+
 	function make_runtime_info() {
 		$data = array();
 
@@ -220,6 +240,15 @@
 
 		$data['dep_ts'] = calculate_dep_timestamp();
 		$data['reload_on_ts_change'] = !defined('_NO_RELOAD_ON_TS_CHANGE');
+
+
+		if (CHECK_FOR_UPDATES && $_SESSION["last_version_check"] + 86400 + rand(-1000, 1000) < time()) {
+			$update_result = @check_for_update();
+
+			$data["update_result"] = $update_result;
+
+			$_SESSION["last_version_check"] = time();
+		}
 
 		if (file_exists(LOCK_DIRECTORY . "/update_daemon.lock")) {
 
@@ -246,15 +275,6 @@
 					$data['daemon_stamp'] = $stamp_fmt;
 				}
 			}
-		}
-
-		if ($_SESSION["last_version_check"] + 86400 + rand(-1000, 1000) < time()) {
-				$new_version_details = @check_for_update();
-
-				$data['new_version_available'] = (int) ($new_version_details != false);
-
-				$_SESSION["last_version_check"] = time();
-				$_SESSION["version_data"] = $new_version_details;
 		}
 
 		return $data;
@@ -333,6 +353,19 @@
 						array_push($query_keywords, "($not (published = true))");
 					else
 						array_push($query_keywords, "($not (published = false))");
+
+				} else {
+					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
+							OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
+					if (!$not) array_push($search_words, $k);
+				}
+				break;
+			case "unread":
+				if ($commandpair[1]) {
+					if ($commandpair[1] == "true")
+						array_push($query_keywords, "($not (unread = true))");
+					else
+						array_push($query_keywords, "($not (unread = false))");
 
 				} else {
 					array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
@@ -632,10 +665,6 @@
 
 			$order_by = "score DESC, date_entered DESC, updated DESC";
 
-			if ($view_mode == "unread_first") {
-				$order_by = "unread DESC, $order_by";
-			}
-
 			if ($override_order) {
 				$order_by = $override_order;
 			}
@@ -880,7 +909,7 @@
 					$cached_filename = CACHE_DIR . '/images/' . sha1($src) . '.png';
 
 					if (file_exists($cached_filename)) {
-						$src = SELF_URL_PATH . '/image.php?hash=' . sha1($src);
+						$src = SELF_URL_PATH . '/public.php?op=cached_image&hash=' . sha1($src);
 					}
 
 					$entry->setAttribute('src', $src);
@@ -1017,25 +1046,6 @@
 		}
 
 		return $doc;
-	}
-
-	function check_for_update() {
-		if (CHECK_FOR_NEW_VERSION && $_SESSION['access_level'] >= 10) {
-			$version_url = "http://tt-rss.org/version.php?ver=" . VERSION .
-				"&iid=" . sha1(SELF_URL_PATH);
-
-			$version_data = @fetch_file_contents($version_url);
-
-			if ($version_data) {
-				$version_data = json_decode($version_data, true);
-				if ($version_data && $version_data['version']) {
-					if (version_compare(VERSION_STATIC, $version_data['version']) == -1) {
-						return $version_data;
-					}
-				}
-			}
-		}
-		return false;
 	}
 
 	function catchupArticlesById($ids, $cmode, $owner_uid = false) {
@@ -1729,6 +1739,12 @@
 	 * @return string Fixed URL.
 	 */
 	function fix_url($url) {
+
+		// support schema-less urls
+		if (strpos($url, '//') === 0) {
+			$url = 'https:' . $url;
+		}
+
 		if (strpos($url, '://') === false) {
 			$url = 'http://' . $url;
 		} else if (substr($url, 0, 5) == 'feed:') {
@@ -1930,28 +1946,37 @@
 
 					foreach ($entries as $entry) {
 
-						if (preg_match("/image/", $entry["type"]) ||
-								preg_match("/\.(jpg|png|gif|bmp)/i", $entry["filename"])) {
+					foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_RENDER_ENCLOSURE) as $plugin)
+						$retval = $plugin->hook_render_enclosure($entry, $hide_images);
 
-								if (!$hide_images) {
-									$encsize = '';
-									if ($entry['height'] > 0)
-										$encsize .= ' height="' . intval($entry['width']) . '"';
-									if ($entry['width'] > 0)
-										$encsize .= ' width="' . intval($entry['height']) . '"';
-									$rv .= "<p><img
-									alt=\"".htmlspecialchars($entry["filename"])."\"
-									src=\"" .htmlspecialchars($entry["url"]) . "\"
-									" . $encsize . " /></p>";
-								} else {
-									$rv .= "<p><a target=\"_blank\"
-									href=\"".htmlspecialchars($entry["url"])."\"
-									>" .htmlspecialchars($entry["url"]) . "</a></p>";
-								}
 
-								if ($entry['title']) {
-									$rv.= "<div class=\"enclosure_title\">${entry['title']}</div>";
-								}
+						if ($retval) {
+							$rv .= $retval;
+						} else {
+
+							if (preg_match("/image/", $entry["type"]) ||
+									preg_match("/\.(jpg|png|gif|bmp)/i", $entry["filename"])) {
+
+									if (!$hide_images) {
+										$encsize = '';
+										if ($entry['height'] > 0)
+											$encsize .= ' height="' . intval($entry['width']) . '"';
+										if ($entry['width'] > 0)
+											$encsize .= ' width="' . intval($entry['height']) . '"';
+										$rv .= "<p><img
+										alt=\"".htmlspecialchars($entry["filename"])."\"
+										src=\"" .htmlspecialchars($entry["url"]) . "\"
+										" . $encsize . " /></p>";
+									} else {
+										$rv .= "<p><a target=\"_blank\"
+										href=\"".htmlspecialchars($entry["url"])."\"
+										>" .htmlspecialchars($entry["url"]) . "</a></p>";
+									}
+
+									if ($entry['title']) {
+										$rv.= "<div class=\"enclosure_title\">${entry['title']}</div>";
+									}
+							}
 						}
 					}
 				}
@@ -2425,9 +2450,19 @@
 		return LABEL_BASE_INDEX - 1 + abs($feed);
 	}
 
-	function theme_valid($file) {
-		if ($file == "default.css" || $file == "night.css") return true; // needed for array_filter
-		$file = "themes/" . basename($file);
+	function get_theme_path($theme) {
+		$check = "themes/$theme";
+		if (file_exists($check)) return $check;
+
+		$check = "themes.local/$theme";
+		if (file_exists($check)) return $check;
+	}
+
+	function theme_valid($theme) {
+		if ($theme == "default.css" || $theme == "night.css") return true; // needed for array_filter
+		$file = "themes/" . basename($theme);
+
+		if (!file_exists($file)) $file = "themes.local/" . basename($theme);
 
 		if (file_exists($file) && is_readable($file)) {
 			$fh = fopen($file, "r");
@@ -2441,5 +2476,23 @@
 		}
 
 		return false;
+	}
+
+	function error_json($code) {
+		require_once "errors.php";
+
+		@$message = $ERRORS[$code];
+
+		return json_encode(array("error" =>
+			array("code" => $code, "message" => $message)));
+
+	}
+
+	function abs_to_rel_path($dir) {
+		$tmp = str_replace(dirname(__DIR__), "", $dir);
+
+		if (strlen($tmp) > 0 && substr($tmp, 0, 1) == "/") $tmp = substr($tmp, 1);
+
+		return $tmp;
 	}
 ?>

@@ -15,13 +15,16 @@ class PluginHost {
 
 	const API_VERSION = 2;
 
+	// Hooks marked with *1 are run in global context and available
+	// to plugins loaded in config.php only
+
 	const HOOK_ARTICLE_BUTTON = 1;
 	const HOOK_ARTICLE_FILTER = 2;
 	const HOOK_PREFS_TAB = 3;
 	const HOOK_PREFS_TAB_SECTION = 4;
 	const HOOK_PREFS_TABS = 5;
 	const HOOK_FEED_PARSED = 6;
-	const HOOK_UPDATE_TASK = 7;
+	const HOOK_UPDATE_TASK = 7; // *1
 	const HOOK_AUTH_USER = 8;
 	const HOOK_HOTKEY_MAP = 9;
 	const HOOK_RENDER_ARTICLE = 10;
@@ -38,11 +41,12 @@ class PluginHost {
 	const HOOK_PREFS_SAVE_FEED = 21;
 	const HOOK_FETCH_FEED = 22;
 	const HOOK_QUERY_HEADLINES = 23;
-	const HOOK_HOUSE_KEEPING = 24;
+	const HOOK_HOUSE_KEEPING = 24; // *1
 	const HOOK_SEARCH = 25;
 	const HOOK_FORMAT_ENCLOSURES = 26;
 	const HOOK_SUBSCRIBE_FEED = 27;
 	const HOOK_HEADLINES_BEFORE = 28;
+	const HOOK_RENDER_ENCLOSURE = 29;
 
 	const KIND_ALL = 1;
 	const KIND_SYSTEM = 2;
@@ -128,7 +132,13 @@ class PluginHost {
 		}
 	}
 	function load_all($kind, $owner_uid = false) {
-		$plugins = array_map("basename", glob("plugins/*"));
+
+		$plugins = array_merge(glob("plugins/*"), glob("plugins.local/*"));
+		$plugins = array_filter($plugins, "is_dir");
+		$plugins = array_map("basename", $plugins);
+
+		asort($plugins);
+
 		$this->load(join(",", $plugins), $kind, $owner_uid);
 	}
 
@@ -141,9 +151,15 @@ class PluginHost {
 			$class = trim($class);
 			$class_file = strtolower(basename($class));
 
-			if (!is_dir(dirname(__FILE__)."/../plugins/$class_file")) continue;
+			if (!is_dir(__DIR__."/../plugins/$class_file") &&
+					!is_dir(__DIR__."/../plugins.local/$class_file")) continue;
 
-			$file = dirname(__FILE__)."/../plugins/$class_file/init.php";
+			// try system plugin directory first
+			$file = __DIR__ . "/../plugins/$class_file/init.php";
+
+			if (!file_exists($file)) {
+				$file = __DIR__ . "/../plugins.local/$class_file/init.php";
+			}
 
 			if (!isset($this->plugins[$class])) {
 				if (file_exists($file)) require_once $file;

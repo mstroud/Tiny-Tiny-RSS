@@ -66,7 +66,7 @@
 	<?php if ($_SESSION["uid"]) {
 		$theme = get_pref( "USER_CSS_THEME", $_SESSION["uid"], false);
 		if ($theme && theme_valid("$theme")) {
-			echo stylesheet_tag("themes/$theme");
+			echo stylesheet_tag(get_theme_path($theme));
 		} else {
 			echo stylesheet_tag("themes/default.css");
 		}
@@ -176,7 +176,6 @@
 			<option value="marked"><?php echo __('Starred') ?></option>
 			<option value="published"><?php echo __('Published') ?></option>
 			<option value="unread"><?php echo __('Unread') ?></option>
-			<option value="unread_first"><?php echo __('Unread First') ?></option>
 			<option value="has_note"><?php echo __('With Note') ?></option>
 			<!-- <option value="noscores"><?php echo __('Ignore Scoring') ?></option> -->
 		</select>
@@ -221,13 +220,6 @@
 				src="images/error.png" />
 			</button>
 
-			<button id="newVersionIcon" dojoType="dijit.form.Button" style="display : none">
-			<img onclick="newVersionDlg()"
-				src="images/new_version.png"
-				title="<?php echo __('New version of Tiny Tiny RSS is available!') ?>" />
-			</button>
-
-
 			<div dojoType="dijit.form.DropDownButton">
 				<span><?php echo __('Actions...') ?></span>
 				<div dojoType="dijit.Menu" style="display: none">
@@ -259,13 +251,17 @@
 					<?php } ?>
 				</div>
 			</div>
+
+			<button id="updatesIcon" dojoType="dijit.form.Button" style="display : none">
+				<img src="images/new_version.png" title="<?php echo __('Updates are available from Git.') ?>"/>
+			</button>
 		</div>
 	</div> <!-- toolbar -->
 </div> <!-- toolbar pane -->
 
 	<div id="headlines-wrap-inner" dojoType="dijit.layout.BorderContainer" region="center">
 
-		<div id="floatingTitle" style="display : none"></div>
+		<div id="floatingTitle" style="visibility : hidden"></div>
 
 		<div id="headlines-frame" dojoType="dijit.layout.ContentPane"
 				onscroll="headlines_scroll_handler(this)" region="center">

@@ -3,7 +3,9 @@ require_once "colors.php";
 
 class Feeds extends Handler_Protected {
 
-	function csrf_ignore($method) {
+    private $params;
+
+    function csrf_ignore($method) {
 		$csrf_ignored = array("index", "feedbrowser", "quickaddfeed", "search");
 
 		return array_search($method, $csrf_ignored) !== false;
@@ -148,9 +150,6 @@ class Feeds extends Handler_Protected {
 					$next_unread_feed, $offset, $vgr_last_feed = false,
 					$override_order = false, $include_children = false) {
 
-		if (isset($_REQUEST["DevForceUpdate"]))
-			header("Content-Type: text/plain; charset=utf-8");
-
 		$disable_cache = false;
 
 		$reply = array();
@@ -177,7 +176,7 @@ class Feeds extends Handler_Protected {
 					$last_updated = strtotime($this->dbh->fetch_result($result, 0, "last_updated"));
 					$cache_images = sql_bool_to_bool($this->dbh->fetch_result($result, 0, "cache_images"));
 
-					if (!$cache_images && time() - $last_updated > 120 || isset($_REQUEST['DevForceUpdate'])) {
+					if (!$cache_images && time() - $last_updated > 120) {
 						include "rssfuncs.php";
 						update_rss_feed($feed, true, true);
 					} else {
@@ -580,6 +579,7 @@ class Feeds extends Handler_Protected {
 						onclick=\"return cdmClicked(event, $id);\"
 						class=\"titleWrap $hlc_suffix\">
 						<a class=\"title $hlc_suffix\"
+						title=\"".htmlspecialchars($line["title"])."\"
 						target=\"_blank\" href=\"".
 						htmlspecialchars($line["link"])."\">".
 						$line["title"] .
@@ -687,7 +687,7 @@ class Feeds extends Handler_Protected {
 
 					$reply['content'] .= "</div>";
 
-					$reply['content'] .= "<div class=\"cdmFooter\">";
+					$reply['content'] .= "<div class=\"cdmFooter\" onclick=\"cdmFooterClick(event)\">";
 
 					foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_ARTICLE_LEFT_BUTTON) as $p) {
 						$reply['content'] .= $p->hook_article_left_button($line);
@@ -1164,6 +1164,52 @@ class Feeds extends Handler_Protected {
 		</div>";
 	}
 
+	function update_debugger() {
+		header("Content-type: text/html");
 
+		$feed_id = (int)$_REQUEST["feed_id"];
+		@$do_update = $_REQUEST["action"] == "do_update";
+		$csrf_token = $_REQUEST["csrf_token"];
+
+		$refetch_checked = isset($_REQUEST["force_refetch"]) ? "checked" : "";
+		$rehash_checked = isset($_REQUEST["force_rehash"]) ? "checked" : "";
+
+		?>
+		<html>
+		<head>
+			<link rel="stylesheet" type="text/css" href="css/utility.css">
+			<title>Feed Debugger</title>
+		</head>
+		<body class="small_margins">
+		<h1>Feed Debugger: <?php echo "$feed_id: " . getFeedTitle($feed_id) ?></h1>
+		<form method="GET" action="">
+			<input type="hidden" name="op" value="feeds">
+			<input type="hidden" name="method" value="update_debugger">
+			<input type="hidden" name="xdebug" value="1">
+			<input type="hidden" name="csrf_token" value="<?php echo $csrf_token ?>">
+			<input type="hidden" name="action" value="do_update">
+			<input type="hidden" name="feed_id" value="<?php echo $feed_id ?>">
+			<input type="checkbox" name="force_refetch" value="1" <?php echo $refetch_checked ?>> Force refetch<br/>
+			<input type="checkbox" name="force_rehash" value="1" <?php echo $rehash_checked ?>> Force rehash<br/>
+
+			<p/><button type="submit">Continue</button>
+		</form>
+
+		<hr>
+
+		<pre><?php
+
+		if ($do_update) {
+			include "rssfuncs.php";
+			update_rss_feed($feed_id, true, true);
+		}
+
+		?></pre>
+
+		</body>
+		</html>
+		<?php
+
+	}
 }
 ?>
