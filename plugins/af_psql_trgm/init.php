@@ -12,6 +12,7 @@ class Af_Psql_Trgm extends Plugin {
 	function save() {
 		$similarity = (float) db_escape_string($_POST["similarity"]);
 		$min_title_length = (int) db_escape_string($_POST["min_title_length"]);
+		$enable_globally = checkbox_to_sql_bool($_POST["enable_globally"]) == "true";
 
 		if ($similarity < 0) $similarity = 0;
 		if ($similarity > 1) $similarity = 1;
@@ -22,8 +23,9 @@ class Af_Psql_Trgm extends Plugin {
 
 		$this->host->set($this, "similarity", $similarity);
 		$this->host->set($this, "min_title_length", $min_title_length);
+		$this->host->set($this, "enable_globally", $enable_globally);
 
-		echo T_sprintf("Data saved (%s)", $similarity);
+		echo T_sprintf("Data saved (%s, %d)", $similarity, $enable_globally);
 	}
 
 	function init($host) {
@@ -65,7 +67,6 @@ class Af_Psql_Trgm extends Plugin {
 				ttrss_entries.id = ref_id AND
 				ttrss_user_entries.owner_uid = $owner_uid AND
 				ttrss_entries.id != $id AND
-				score >= 0 AND
 				date_entered >= NOW() - INTERVAL '2 weeks'
 			ORDER BY
 				sm DESC, date_entered DESC
@@ -79,7 +80,8 @@ class Af_Psql_Trgm extends Plugin {
 				smart_date_time(strtotime($line["updated"]))
 				. "</div>";
 
-			print "<img src='images/score_high.png' title='".sprintf("%.2f", $line['sm'])."'
+			$sm = sprintf("%.2f", $line['sm']);
+			print "<img src='images/score_high.png' title='$sm'
 				style='vertical-align : middle'>";
 
 			$article_link = htmlspecialchars($line["link"]);
@@ -88,6 +90,8 @@ class Af_Psql_Trgm extends Plugin {
 
 			print " (<a href=\"#\" onclick=\"viewfeed(".$line["feed_id"].")\">".
 				htmlspecialchars($line["feed_title"])."</a>)";
+
+			print " <span class='insensitive'>($sm)</span>";
 
 			print "</li>";
 		}
@@ -125,9 +129,12 @@ class Af_Psql_Trgm extends Plugin {
 
 		$similarity = $this->host->get($this, "similarity");
 		$min_title_length = $this->host->get($this, "min_title_length");
+		$enable_globally = $this->host->get($this, "enable_globally");
 
 		if (!$similarity) $similarity = '0.75';
 		if (!$min_title_length) $min_title_length = '32';
+
+		$enable_globally_checked = $enable_globally ? "checked" : "";
 
 		print "<form dojoType=\"dijit.form.Form\">";
 
@@ -168,6 +175,10 @@ class Af_Psql_Trgm extends Plugin {
 			<input dojoType=\"dijit.form.ValidationTextBox\"
 			placeholder=\"32\"
 			required=\"1\" name=\"min_title_length\" value=\"$min_title_length\"></td></tr>";
+		print "<tr><td width=\"40%\">".__("Enable for all feeds:")."</td>";
+		print "<td>
+			<input dojoType=\"dijit.form.CheckBox\"
+			$enable_globally_checked name=\"enable_globally\"></td></tr>";
 
 		print "</table>";
 
@@ -243,9 +254,13 @@ class Af_Psql_Trgm extends Plugin {
 		$result = db_query("select 'similarity'::regproc");
 		if (db_num_rows($result) == 0) return $article;
 
-		$enabled_feeds = $this->host->get($this, "enabled_feeds");
-		$key = array_search($article["feed"]["id"], $enabled_feeds);
-		if ($key === FALSE) return $article;
+		$enable_globally = $this->host->get($this, "enable_globally");
+
+		if (!$enable_globally) {
+			$enabled_feeds = $this->host->get($this, "enabled_feeds");
+			$key = array_search($article["feed"]["id"], $enabled_feeds);
+			if ($key === FALSE) return $article;
+		}
 
 		$similarity = (float) $this->host->get($this, "similarity");
 		if ($similarity < 0.01) return $article;
@@ -253,19 +268,37 @@ class Af_Psql_Trgm extends Plugin {
 		$min_title_length = (int) $this->host->get($this, "min_length");
 		if (mb_strlen($article["title"]) < $min_title_length) return $article;
 
+
 		$owner_uid = $article["owner_uid"];
 		$feed_id = $article["feed"]["id"];
-
 		$title_escaped = db_escape_string($article["title"]);
+
+		// trgm does not return similarity=1 for completely equal strings
+
+		$result = db_query("SELECT COUNT(id) AS nequal
+		  FROM ttrss_entries, ttrss_user_entries WHERE ref_id = id AND
+		  date_entered >= NOW() - interval '1 day' AND
+		  title = '$title_escaped' AND
+		  feed_id != '$feed_id' AND
+		  owner_uid = $owner_uid");
+
+		$nequal = db_fetch_result($result, 0, "nequal");
+		_debug("af_psql_trgm: num equals: $nequal");
+
+		if ($nequal != 0) {
+			$article["force_catchup"] = true;
+			return $article;
+		}
 
 		$result = db_query("SELECT MAX(SIMILARITY(title, '$title_escaped')) AS ms
 		  FROM ttrss_entries, ttrss_user_entries WHERE ref_id = id AND
 		  date_entered >= NOW() - interval '1 day' AND
+		  feed_id != '$feed_id' AND
 		  owner_uid = $owner_uid");
 
 		$similarity_result = db_fetch_result($result, 0, "ms");
 
-		//_debug("similarity result: $similarity_result");
+		_debug("af_psql_trgm: similarity result: $similarity_result");
 
 		if ($similarity_result >= $similarity) {
 			$article["force_catchup"] = true;
