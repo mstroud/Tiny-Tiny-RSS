@@ -41,12 +41,12 @@ class Article extends Handler_Protected {
 		} else if ($mode == "zoom") {
 			array_push($articles, format_article($id, true, true));
 		} else if ($mode == "raw") {
-			if ($_REQUEST['html']) {
+			if (isset($_REQUEST['html'])) {
 				header("Content-Type: text/html");
 				print '<link rel="stylesheet" type="text/css" href="css/tt-rss.css"/>';
 			}
 
-			$article = format_article($id, false);
+			$article = format_article($id, false, isset($_REQUEST["zoom"]));
 			print $article['content'];
 			return;
 		}
@@ -190,7 +190,7 @@ class Article extends Handler_Protected {
 		print "<table width='100%'><tr><td>";
 
 		print "<textarea dojoType=\"dijit.form.SimpleTextarea\" rows='4'
-			style='font-size : 12px; width : 100%' id=\"tags_str\"
+			style='font-size : 12px; width : 98%' id=\"tags_str\"
 			name='tags_str'>$tags_str</textarea>
 		<div class=\"autocomplete\" id=\"tags_choices\"
 				style=\"display:none\"></div>";

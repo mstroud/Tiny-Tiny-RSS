@@ -88,7 +88,7 @@ class Af_Psql_Trgm extends Plugin {
 			print " <a target=\"_blank\" href=\"$article_link\">".
 				$line["title"]."</a>";
 
-			print " (<a href=\"#\" onclick=\"viewfeed(".$line["feed_id"].")\">".
+			print " (<a href=\"#\" onclick=\"viewfeed({feed:".$line["feed_id"]."})\">".
 				htmlspecialchars($line["feed_title"])."</a>)";
 
 			print " <span class='insensitive'>($sm)</span>";
@@ -156,9 +156,7 @@ class Af_Psql_Trgm extends Plugin {
 		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"method\" value=\"save\">";
 		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"plugin\" value=\"af_psql_trgm\">";
 
-		print_notice("PostgreSQL trigram extension returns string similarity as a floating point number (0-1). Setting it too low might produce false positives, zero disables checking.");
-
-		print "<br/>";
+		print "<p>" . __("PostgreSQL trigram extension returns string similarity as a floating point number (0-1). Setting it too low might produce false positives, zero disables checking.") . "</p>";
 		print_notice("Enable the plugin for specific feeds in the feed editor.");
 
 		print "<h3>" . __("Global settings") . "</h3>";
@@ -265,12 +263,11 @@ class Af_Psql_Trgm extends Plugin {
 		$similarity = (float) $this->host->get($this, "similarity");
 		if ($similarity < 0.01) return $article;
 
-		$min_title_length = (int) $this->host->get($this, "min_length");
+		$min_title_length = (int) $this->host->get($this, "min_title_length");
 		if (mb_strlen($article["title"]) < $min_title_length) return $article;
 
-
 		$owner_uid = $article["owner_uid"];
-		$feed_id = $article["feed"]["id"];
+		$entry_guid = $article["guid_hashed"];
 		$title_escaped = db_escape_string($article["title"]);
 
 		// trgm does not return similarity=1 for completely equal strings
@@ -279,7 +276,7 @@ class Af_Psql_Trgm extends Plugin {
 		  FROM ttrss_entries, ttrss_user_entries WHERE ref_id = id AND
 		  date_entered >= NOW() - interval '1 day' AND
 		  title = '$title_escaped' AND
-		  feed_id != '$feed_id' AND
+		  guid != '$entry_guid' AND
 		  owner_uid = $owner_uid");
 
 		$nequal = db_fetch_result($result, 0, "nequal");
@@ -293,7 +290,7 @@ class Af_Psql_Trgm extends Plugin {
 		$result = db_query("SELECT MAX(SIMILARITY(title, '$title_escaped')) AS ms
 		  FROM ttrss_entries, ttrss_user_entries WHERE ref_id = id AND
 		  date_entered >= NOW() - interval '1 day' AND
-		  feed_id != '$feed_id' AND
+		  guid != '$entry_guid' AND
 		  owner_uid = $owner_uid");
 
 		$similarity_result = db_fetch_result($result, 0, "ms");

@@ -35,6 +35,10 @@ class Db_Pgsql implements IDb {
 	}
 
 	function query($query, $die_on_error = true) {
+		global $last_query;
+
+		if (strpos($query, "ttrss_error_log") === FALSE) $last_query = $query;
+
 		$result = @pg_query($this->link, $query);
 
 		if (!$result) {
@@ -78,6 +82,7 @@ class Db_Pgsql implements IDb {
 		pg_set_client_encoding("UNICODE");
 		$this->query("set datestyle = 'ISO, european'");
 		$this->query("set TIME ZONE 0");
+		$this->query("set cpu_tuple_cost = 0.5");
 
 		return true;
 	}

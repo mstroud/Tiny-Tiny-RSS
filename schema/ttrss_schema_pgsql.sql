@@ -96,6 +96,7 @@ create table ttrss_feeds (id serial not null primary key,
 	view_settings varchar(250) not null default '',
 	pubsub_state integer not null default 0,
 	favicon_last_checked timestamp default null,
+	feed_language varchar(100) not null default '',
 	auth_pass_encrypted boolean not null default false);
 
 create index ttrss_feeds_owner_uid_index on ttrss_feeds(owner_uid);
@@ -142,12 +143,14 @@ create table ttrss_entries (id serial not null primary key,
 	num_comments integer not null default 0,
 	comments varchar(250) not null default '',
 	plugin_data text,
+	tsvector_combined tsvector,
 	lang varchar(2),
 	author varchar(250) not null default '');
 
 -- create index ttrss_entries_title_index on ttrss_entries(title);
 create index ttrss_entries_date_entered_index on ttrss_entries(date_entered);
 create index ttrss_entries_updated_idx on ttrss_entries(updated);
+create index ttrss_entries_tsvector_combined_idx on ttrss_entries using gin(tsvector_combined);
 
 create table ttrss_user_entries (
 	int_id serial not null primary key,
@@ -225,6 +228,9 @@ insert into ttrss_filter_actions (id,name,description) values (7, 'label',
 insert into ttrss_filter_actions (id,name,description) values (8, 'stop',
 	'Stop / Do nothing');
 
+insert into ttrss_filter_actions (id,name,description) values (9, 'plugin',
+	'Invoke plugin');
+
 create table ttrss_filters2(id serial not null primary key,
 	owner_uid integer not null references ttrss_users(id) on delete cascade,
 	match_any_rule boolean not null default false,
@@ -257,7 +263,7 @@ create index ttrss_tags_post_int_id_idx on ttrss_tags(post_int_id);
 
 create table ttrss_version (schema_version int not null);
 
-insert into ttrss_version values (127);
+insert into ttrss_version values (130);
 
 create table ttrss_enclosures (id serial not null primary key,
 	content_url text not null,

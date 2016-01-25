@@ -9,7 +9,11 @@
 
 		foreach ($article as $k => $v) {
 			if ($k != "feed" && isset($v)) {
-				$tmp .= sha1("$k:" . (is_array($v) ? implode(",", $v) : $v));
+				$x = strip_tags(is_array($v) ? implode(",", $v) : $v);
+
+				//_debug("$k:" . sha1($x) . ":" . htmlspecialchars($x), true);
+
+				$tmp .= sha1("$k:" . sha1($x));
 			}
 		}
 
@@ -130,6 +134,10 @@
 		$query_limit = "";
 		if($limit) $query_limit = sprintf("LIMIT %d", $limit);
 
+		// Update the least recently updated feeds first
+		$query_order = "ORDER BY last_updated";
+		if (DB_TYPE == "pgsql") $query_order .= " NULLS FIRST";
+
 		$query = "SELECT DISTINCT ttrss_feeds.feed_url, ttrss_feeds.last_updated
 			FROM
 				ttrss_feeds, ttrss_users, ttrss_user_prefs
@@ -140,7 +148,7 @@
 				AND ttrss_user_prefs.pref_name = 'DEFAULT_UPDATE_INTERVAL'
 				$login_thresh_qpart $update_limit_qpart
 				$updstart_thresh_qpart
-				ORDER BY last_updated $query_limit";
+				$query_order $query_limit";
 
 		// We search for feed needing update.
 		$result = db_query($query);
@@ -227,7 +235,7 @@
 
 		$feed = db_escape_string($feed);
 
-		$result = db_query("SELECT feed_url,auth_pass,auth_pass_encrypted
+		$result = db_query("SELECT feed_url,auth_pass,auth_login,auth_pass_encrypted
 					FROM ttrss_feeds WHERE id = '$feed'");
 
 		$auth_pass_encrypted = sql_bool_to_bool(db_fetch_result($result,
@@ -306,6 +314,7 @@
 			feed_url,auth_pass,cache_images,
 			mark_unread_on_update, owner_uid,
 			pubsub_state, auth_pass_encrypted,
+			feed_language,
 			(SELECT max(date_entered) FROM
 				ttrss_entries, ttrss_user_entries where ref_id = id AND feed_id = '$feed') AS last_article_timestamp
 			FROM ttrss_feeds WHERE id = '$feed'");
@@ -340,6 +349,8 @@
 
 		$cache_images = sql_bool_to_bool(db_fetch_result($result, 0, "cache_images"));
 		$fetch_url = db_fetch_result($result, 0, "feed_url");
+		$feed_language = db_escape_string(mb_strtolower(db_fetch_result($result, 0, "feed_language")));
+		if (!$feed_language) $feed_language = 'english';
 
 		$feed = db_escape_string($feed);
 
@@ -388,6 +399,11 @@
 			// fetch feed from source
 			if (!$feed_data) {
 				_debug("fetching [$fetch_url]...", $debug_enabled);
+
+				if (ini_get("open_basedir") && function_exists("curl_init")) {
+					_debug("not using CURL due to open_basedir restrictions");
+				}
+
 				_debug("If-Modified-Since: ".gmdate('D, d M Y H:i:s \G\M\T', $last_article_timestamp), $debug_enabled);
 
 				$feed_data = fetch_file_contents($fetch_url, false,
@@ -463,6 +479,7 @@
 			// We use local pluginhost here because we need to load different per-user feed plugins
 			$pluginhost->run_hooks(PluginHost::HOOK_FEED_PARSED, "hook_feed_parsed", $rss);
 
+			_debug("language: $feed_language", $debug_enabled);
 			_debug("processing feed data...", $debug_enabled);
 
 //			db_query("BEGIN");
@@ -645,7 +662,7 @@
 
 				if ($_REQUEST["xdebug"] == 2) {
 					print "content: ";
-					print $entry_content;
+					print htmlspecialchars($entry_content);
 					print "\n";
 				}
 
@@ -692,6 +709,10 @@
 					$entry_stored_hash = db_fetch_result($result, 0, "content_hash");
 					$article_labels = get_article_labels($base_entry_id, $owner_uid);
 					$entry_language = db_fetch_result($result, 0, "lang");
+
+					$existing_tags = get_article_tags($base_entry_id, $owner_uid);
+					$entry_tags = array_unique(array_merge($entry_tags, $existing_tags));
+
 				} else {
 					$base_entry_id = false;
 					$entry_stored_hash = "";
@@ -734,11 +755,7 @@
 					db_query("UPDATE ttrss_entries SET date_updated = NOW()
 						WHERE id = '$base_entry_id'");
 
-                    // if we allow duplicate posts, we have to continue to
-                    // create the user entries for this feed
-                    if (!get_pref("ALLOW_DUPLICATE_POSTS", $owner_uid, false)) {
-                        continue;
-                    }
+					continue;
 				}
 
 				_debug("hash differs, applying plugin filters:", $debug_enabled);
@@ -754,6 +771,12 @@
 					$entry_plugin_data .= mb_strtolower(get_class($plugin)) . ",";
 				}
 
+				if ($_REQUEST["xdebug"] == 2) {
+					print "processed content: ";
+					print htmlspecialchars($article["content"]);
+					print "\n";
+				}
+
 				$entry_plugin_data = db_escape_string($entry_plugin_data);
 
 				_debug("plugin data: $entry_plugin_data", $debug_enabled);
@@ -765,6 +788,47 @@
 						// i guess we'll have to take the risk of 4byte unicode labels & tags here
 						if (!is_array($article[$k])) {
 							$article[$k] = preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\xEF\xBF\xBD", $v);
+						}
+					}
+				}
+
+				/* Collect article tags here so we could filter by them: */
+
+				$article_filters = get_article_filters($filters, $article["title"],
+					$article["content"], $article["link"], 0, $article["author"],
+					$article["tags"]);
+
+				if ($debug_enabled) {
+					_debug("article filters: ", $debug_enabled);
+					if (count($article_filters) != 0) {
+						print_r($article_filters);
+					}
+				}
+
+				$plugin_filter_names = find_article_filters($article_filters, "plugin");
+				$plugin_filter_actions = $pluginhost->get_filter_actions();
+
+				if (count($plugin_filter_names) > 0) {
+					_debug("applying plugin filter actions...", $debug_enabled);
+
+					foreach ($plugin_filter_names as $pfn) {
+						list($pfclass,$pfaction) = explode(":", $pfn["param"]);
+
+						if (isset($plugin_filter_actions[$pfclass])) {
+							$plugin = $pluginhost->get_plugin($pfclass);
+
+							_debug("... $pfclass: $pfaction", $debug_enabled);
+
+							if ($plugin) {
+								$start = microtime(true);
+								$article = $plugin->hook_article_filter_action($article, $pfaction);
+
+								_debug("=== " . sprintf("%.4f (sec)", microtime(true) - $start), $debug_enabled);
+							} else {
+								_debug("??? $pfclass: plugin object not found.");
+							}
+						} else {
+							_debug("??? $pfclass: filter plugin not registered.");
 						}
 					}
 				}
@@ -792,7 +856,7 @@
 
 				$entry_content = db_escape_string($entry_content, false);
 
-				db_query("BEGIN");
+				//db_query("BEGIN");
 
 				$result = db_query("SELECT id FROM	ttrss_entries
 					WHERE (guid = '$entry_guid' OR guid = '$entry_guid_hashed')");
@@ -862,30 +926,8 @@
 							id = '$ref_id'");
 					} */
 
-					// check for user post link to main table
-
-					// do we allow duplicate posts with same GUID in different feeds?
-					if (get_pref("ALLOW_DUPLICATE_POSTS", $owner_uid, false)) {
-						$dupcheck_qpart = "AND (feed_id = '$feed' OR feed_id IS NULL)";
-					} else {
-						$dupcheck_qpart = "";
-					}
-
-					/* Collect article tags here so we could filter by them: */
-
-					$article_filters = get_article_filters($filters, $entry_title,
-						$entry_content, $entry_link, $entry_timestamp, $entry_author,
-						$entry_tags);
-
-					if ($debug_enabled) {
-						_debug("article filters: ", $debug_enabled);
-						if (count($article_filters) != 0) {
-							print_r($article_filters);
-						}
-					}
-
 					if (find_article_filter($article_filters, "filter")) {
-						db_query("COMMIT"); // close transaction in progress
+						//db_query("COMMIT"); // close transaction in progress
 						continue;
 					}
 
@@ -893,9 +935,10 @@
 
 					_debug("initial score: $score [including plugin modifier: $entry_score_modifier]", $debug_enabled);
 
+					// check for user post link to main table
+
 					$query = "SELECT ref_id, int_id FROM ttrss_user_entries WHERE
-							ref_id = '$ref_id' AND owner_uid = '$owner_uid'
-							$dupcheck_qpart";
+							ref_id = '$ref_id' AND owner_uid = '$owner_uid'";
 
 //					if ($_REQUEST["xdebug"]) print "$query\n";
 
@@ -984,11 +1027,22 @@
 
 					_debug("RID: $entry_ref_id, IID: $entry_int_id", $debug_enabled);
 
+					if (DB_TYPE == "pgsql") {
+					   $tsvector_combined = db_escape_string(mb_substr($entry_title . ' ' . strip_tags(str_replace('<', ' <', $entry_content)),
+							0, 1000000));
+
+						$tsvector_qpart = "tsvector_combined = to_tsvector('$feed_language', '$tsvector_combined'),";
+
+					} else {
+						$tsvector_qpart = "";
+					}
+
 					db_query("UPDATE ttrss_entries
 						SET title = '$entry_title',
 							content = '$entry_content',
 							content_hash = '$entry_current_hash',
 							updated = '$entry_timestamp_fmt',
+							$tsvector_qpart
 							num_comments = '$num_comments',
 							plugin_data = '$entry_plugin_data',
 							author = '$entry_author',
@@ -1000,12 +1054,14 @@
 							SET score = '$score' WHERE ref_id = '$ref_id'");
 
 					if ($mark_unread_on_update) {
+						_debug("article updated, marking unread as requested.", $debug_enabled);
+
 						db_query("UPDATE ttrss_user_entries
 							SET last_read = null, unread = true WHERE ref_id = '$ref_id'");
 					}
 				}
 
-				db_query("COMMIT");
+				//db_query("COMMIT");
 
 				_debug("assigning labels [other]...", $debug_enabled);
 
@@ -1039,7 +1095,7 @@
 					print_r($enclosures);
 				}
 
-				db_query("BEGIN");
+				//db_query("BEGIN");
 
 //				debugging
 //				db_query("DELETE FROM ttrss_enclosures WHERE post_id = '$entry_ref_id'");
@@ -1062,7 +1118,7 @@
 					}
 				}
 
-				db_query("COMMIT");
+				//db_query("COMMIT");
 
 				// check for manual tags (we have to do it here since they're loaded from filters)
 
@@ -1106,7 +1162,7 @@
 
 				if (count($filtered_tags) > 0) {
 
-					db_query("BEGIN");
+					//db_query("BEGIN");
 
 					foreach ($filtered_tags as $tag) {
 
@@ -1139,7 +1195,7 @@
 						SET tag_cache = '$tags_str' WHERE ref_id = '$entry_ref_id'
 						AND owner_uid = $owner_uid");
 
-					db_query("COMMIT");
+					//db_query("COMMIT");
 				}
 
 				_debug("article processed", $debug_enabled);
@@ -1205,6 +1261,8 @@
 					if ($file_content && strlen($file_content) > _MIN_CACHE_IMAGE_SIZE) {
 						file_put_contents($local_filename, $file_content);
 					}
+				} else {
+					touch($local_filename);
 				}
 			}
 		}
@@ -1360,7 +1418,7 @@
 					array_push($matches, $action);
 
 					// if Stop action encountered, perform no further processing
-					if ($action["type"] == "stop") return $matches;
+					if (isset($action["type"]) && $action["type"] == "stop") return $matches;
 				}
 			}
 		}
@@ -1461,9 +1519,9 @@
 
 		purge_orphans( true);
 		cleanup_counters_cache($debug);
-		$rc = cleanup_tags( 14, 50000);
 
-		_debug("Cleaned $rc cached tags.");
+		//$rc = cleanup_tags( 14, 50000);
+		//_debug("Cleaned $rc cached tags.");
 
 		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_HOUSE_KEEPING, "hook_house_keeping", "");
 

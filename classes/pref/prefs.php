@@ -164,7 +164,7 @@ class Pref_Prefs extends Handler_Protected {
 
 		global $access_level_names;
 
-		$prefs_blacklist = array("STRIP_UNSAFE_TAGS", "REVERSE_HEADLINES",
+		$prefs_blacklist = array("ALLOW_DUPLICATE_POSTS", "STRIP_UNSAFE_TAGS", "REVERSE_HEADLINES",
 			"SORT_HEADLINES_BY_FEED_DATE", "DEFAULT_ARTICLE_LIMIT",
 			"FEEDS_SORT_BY_UNREAD");
 
@@ -622,6 +622,8 @@ class Pref_Prefs extends Handler_Protected {
 				$cert_serial = htmlspecialchars(get_ssl_certificate_id());
 				$has_serial = ($cert_serial) ? "false" : "true";
 
+				print "<br/>";
+
 				print " <button dojoType=\"dijit.form.Button\" disabled=\"$has_serial\"
 					onclick=\"insertSSLserial('$cert_serial')\">" .
 					__('Register') . "</button>";
@@ -707,6 +709,10 @@ class Pref_Prefs extends Handler_Protected {
 
 		print_notice(__("Download more plugins at tt-rss.org <a class=\"visibleLink\" target=\"_blank\" href=\"http://tt-rss.org/forum/viewforum.php?f=22\">forums</a> or <a target=\"_blank\" class=\"visibleLink\" href=\"http://tt-rss.org/wiki/Plugins\">wiki</a>."));
 
+		if (ini_get("open_basedir") && function_exists("curl_init") && !defined("NO_CURL")) {
+			print_warning("Your PHP configuration has open_basedir restrictions enabled. Some plugins relying on CURL for functionality may not work correctly.");
+		}
+
 		print "<form dojoType=\"dijit.form.Form\" id=\"changePluginsForm\">";
 
 		print "<script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">
@@ -744,13 +750,13 @@ class Pref_Prefs extends Handler_Protected {
 		$user_enabled = array_map("trim", explode(",", get_pref("_ENABLED_PLUGINS")));
 
 		$tmppluginhost = new PluginHost();
-		$tmppluginhost->load_all($tmppluginhost::KIND_ALL, $_SESSION["uid"]);
+		$tmppluginhost->load_all($tmppluginhost::KIND_ALL, $_SESSION["uid"], true);
 		$tmppluginhost->load_data(true);
 
 		foreach ($tmppluginhost->get_plugins() as $name => $plugin) {
 			$about = $plugin->about();
 
-			if ($about[3] && strpos($name, "example") === FALSE) {
+			if ($about[3]) {
 				if (in_array($name, $system_enabled)) {
 					$checked = "checked='1'";
 				} else {
@@ -800,7 +806,7 @@ class Pref_Prefs extends Handler_Protected {
 		foreach ($tmppluginhost->get_plugins() as $name => $plugin) {
 			$about = $plugin->about();
 
-			if (!$about[3] && strpos($name, "example") === FALSE) {
+			if (!$about[3]) {
 
 				if (in_array($name, $system_enabled)) {
 					$checked = "checked='1'";
@@ -973,7 +979,7 @@ class Pref_Prefs extends Handler_Protected {
 
 		print "<table width='100%'><tr><td>";
 		print "<textarea dojoType=\"dijit.form.SimpleTextarea\"
-			style='font-size : 12px; width : 100%; height: 200px;'
+			style='font-size : 12px; width : 98%; height: 200px;'
 			placeHolder='body#ttrssMain { font-size : 14px; };'
 			name='value'>$value</textarea>";
 		print "</td></tr></table>";
