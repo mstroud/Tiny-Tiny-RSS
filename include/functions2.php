@@ -64,8 +64,6 @@
 				"toggle_publ" => __("Toggle published"),
 				"toggle_unread" => __("Toggle unread"),
 				"edit_tags" => __("Edit tags"),
-				"dismiss_selected" => __("Dismiss selected"),
-				"dismiss_read" => __("Dismiss read"),
 				"open_in_new_window" => __("Open in new window"),
 				"catchup_below" => __("Mark below as read"),
 				"catchup_above" => __("Mark above as read"),
@@ -135,8 +133,6 @@
 				"*s" => "toggle_publ",
 				"u" => "toggle_unread",
 				"*t" => "edit_tags",
-				"*d" => "dismiss_selected",
-				"*x" => "dismiss_read",
 				"o" => "open_in_new_window",
 				"c p" => "catchup_below",
 				"c n" => "catchup_above",
@@ -912,6 +908,14 @@
 
 					if (file_exists($cached_filename)) {
 						$src = SELF_URL_PATH . '/public.php?op=cached_image&hash=' . sha1($src);
+
+						if ($entry->hasAttribute('srcset')) {
+							$entry->removeAttribute('srcset');
+						}
+
+						if ($entry->hasAttribute('sizes')) {
+							$entry->removeAttribute('sizes');
+						}
 					}
 
 					$entry->setAttribute('src', $src);
@@ -979,7 +983,7 @@
 			'ol', 'p', 'pre', 'q', 'ruby', 'rp', 'rt', 's', 'samp', 'section',
 			'small', 'source', 'span', 'strike', 'strong', 'sub', 'summary',
 			'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'time',
-			'tr', 'track', 'tt', 'u', 'ul', 'var', 'wbr', 'video' );
+			'tr', 'track', 'tt', 'u', 'ul', 'var', 'wbr', 'video', 'xml:namespace' );
 
 		if ($_SESSION['hasSandbox']) $allowed_elements[] = 'iframe';
 
@@ -2040,15 +2044,15 @@
 	 * @return string Absolute URL
 	 */
 	function rewrite_relative_url($url, $rel_url) {
-		if (strpos($rel_url, ":") !== false) {
-			return $rel_url;
-		} else if (strpos($rel_url, "://") !== false) {
+		if (strpos($rel_url, "://") !== false) {
 			return $rel_url;
 		} else if (strpos($rel_url, "//") === 0) {
 			# protocol-relative URL (rare but they exist)
 			return $rel_url;
-		} else if (strpos($rel_url, "/") === 0)
-		{
+		} else if (preg_match("/^[a-z]+:/i", $rel_url)) {
+			# magnet:, feed:, etc
+			return $rel_url;
+		} else if (strpos($rel_url, "/") === 0) {
 			$parts = parse_url($url);
 			$parts['path'] = $rel_url;
 
