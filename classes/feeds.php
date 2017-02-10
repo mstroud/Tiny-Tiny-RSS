@@ -86,17 +86,23 @@ class Feeds extends Handler_Protected {
 		$reply .= "<span class=\"main\">";
 		$reply .= "<span id='selected_prompt'></span>";
 
-		$reply .= "<span class=\"sel_links\">
+		/*$reply .= "<span class=\"sel_links\">
 			<a href=\"#\" onclick=\"$sel_all_link\">".__('All')."</a>,
 			<a href=\"#\" onclick=\"$sel_unread_link\">".__('Unread')."</a>,
 			<a href=\"#\" onclick=\"$sel_inv_link\">".__('Invert')."</a>,
 			<a href=\"#\" onclick=\"$sel_none_link\">".__('None')."</a></li>";
 
-		$reply .= "</span> ";
+		$reply .= "</span> "; */
 
 		$reply .= "<select dojoType=\"dijit.form.Select\"
 			onchange=\"headlineActionsChange(this)\">";
-		$reply .= "<option value=\"false\">".__('More...')."</option>";
+
+		$reply .= "<option value=\"0\" disabled='1'>".__('Select...')."</option>";
+
+		$reply .= "<option value=\"$sel_all_link\">".__('All')."</option>";
+		$reply .= "<option value=\"$sel_unread_link\">".__('Unread')."</option>";
+		$reply .= "<option value=\"$sel_inv_link\">".__('Invert')."</option>";
+		$reply .= "<option value=\"$sel_none_link\">".__('None')."</option>";
 
 		$reply .= "<option value=\"0\" disabled=\"1\">".__('Selection toggle:')."</option>";
 
@@ -700,14 +706,9 @@ class Feeds extends Handler_Protected {
 
 					$reply['content'] .= "<span id=\"CWRAP-$id\">";
 
-//					if (!$expand_cdm) {
-						$reply['content'] .= "<span id=\"CENCW-$id\" style=\"display : none\">";
-						$reply['content'] .= htmlspecialchars($line["content"]);
-						$reply['content'] .= "</span.";
-
-//					} else {
-//						$reply['content'] .= $line["content"];
-//					}
+					$reply['content'] .= "<span id=\"CENCW-$id\" class=\"cencw\" style=\"display : none\">";
+					$reply['content'] .= htmlspecialchars($line["content"]);
+					$reply['content'] .= "</span>";
 
 					$reply['content'] .= "</span>";
 
@@ -735,7 +736,7 @@ class Feeds extends Handler_Protected {
 						<a title=\"".__('Edit tags for this article')."\"
 						href=\"#\" onclick=\"editArticleTags($id)\">(+)</a>";
 
-					$num_comments = $line["num_comments"];
+					$num_comments = (int) $line["num_comments"];
 					$entry_comments = "";
 
 					if ($num_comments > 0) {
@@ -1026,8 +1027,10 @@ class Feeds extends Handler_Protected {
 	}
 
 	function quickAddFeed() {
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"op\" value=\"rpc\">";
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"method\" value=\"addfeed\">";
+		print_hidden("op", "rpc");
+		print_hidden("method", "addfeed");
+
+		print "<div id='fadd_error_message' style='display : none' class='alert alert-danger'></div>";
 
 		print "<div id='fadd_multiple_notify' style='display : none'>";
 		print_notice("Provided URL is a HTML page referencing multiple feeds, please select required feed from the dropdown menu below.");
@@ -1108,8 +1111,8 @@ class Feeds extends Handler_Protected {
 
 		$browser_search = $this->dbh->escape_string($_REQUEST["search"]);
 
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"op\" value=\"rpc\">";
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"method\" value=\"updateFeedBrowser\">";
+		print_hidden("op", "rpc");
+		print_hidden("method", "updateFeedBrowser");
 
 		print "<div dojoType=\"dijit.Toolbar\">
 			<div style='float : right'>

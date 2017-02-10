@@ -44,6 +44,11 @@
 
 		$params['simple_update'] = defined('SIMPLE_UPDATE_MODE') && SIMPLE_UPDATE_MODE;
 
+		$params["icon_alert"] = base64_img("images/alert.png");
+		$params["icon_information"] = base64_img("images/information.png");
+		$params["icon_cross"] = base64_img("images/cross.png");
+		$params["icon_indicator_white"] = base64_img("images/indicator_white.gif");
+
 		return $params;
 	}
 
@@ -89,6 +94,7 @@
 				"feed_edit" => __("Edit feed"),
 				"feed_catchup" => __("Mark as read"),
 				"feed_reverse" => __("Reverse headlines"),
+				"feed_toggle_vgroup" => __("Toggle headline grouping"),
 				"feed_debug_update" => __("Debug feed update"),
 				"feed_debug_viewfeed" => __("Debug viewfeed()"),
 				"catchup_all" => __("Mark all feeds as read"),
@@ -158,6 +164,7 @@
 				"f e" => "feed_edit",
 				"f q" => "feed_catchup",
 				"f x" => "feed_reverse",
+				"f g" => "feed_toggle_vgroup",
 				"f *d" => "feed_debug_update",
 				"f *g" => "feed_debug_viewfeed",
 				"f *c" => "toggle_combined_mode",
@@ -886,28 +893,47 @@
 		$doc->loadHTML($charset_hack . $res);
 		$xpath = new DOMXPath($doc);
 
-		$entries = $xpath->query('(//a[@href]|//img[@src])');
-
 		$ttrss_uses_https = parse_url(get_self_url_prefix(), PHP_URL_SCHEME) === 'https';
+		$rewrite_base_url = $site_url ? $site_url : SELF_URL_PATH;
+
+		$entries = $xpath->query('(//a[@href]|//img[@src]|//video/source[@src])');
 
 		foreach ($entries as $entry) {
 
-			if ($site_url) {
+			if ($entry->hasAttribute('href')) {
+				$entry->setAttribute('href',
+					rewrite_relative_url($rewrite_base_url, $entry->getAttribute('href')));
 
-				if ($entry->hasAttribute('href')) {
-					$entry->setAttribute('href',
-						rewrite_relative_url($site_url, $entry->getAttribute('href')));
+				$entry->setAttribute('rel', 'noopener noreferrer');
+			}
 
-					$entry->setAttribute('rel', 'noreferrer');
+			if ($entry->hasAttribute('src')) {
+				$src = rewrite_relative_url($rewrite_base_url, $entry->getAttribute('src'));
+
+				$extension = $entry->tagName == 'source' ? '.mp4' : '.png';
+				$cached_filename = CACHE_DIR . '/images/' . sha1($src) . $extension;
+
+				if (file_exists($cached_filename)) {
+					$src = get_self_url_prefix() . '/public.php?op=cached_image&hash=' . sha1($src) . $extension;
+
+					if ($entry->hasAttribute('srcset')) {
+						$entry->removeAttribute('srcset');
+					}
+
+					if ($entry->hasAttribute('sizes')) {
+						$entry->removeAttribute('sizes');
+					}
 				}
 
+				$entry->setAttribute('src', $src);
+			}
+
+			if ($entry->nodeName == 'img') {
+
 				if ($entry->hasAttribute('src')) {
-					$src = rewrite_relative_url($site_url, $entry->getAttribute('src'));
+					$is_https_url = parse_url($entry->getAttribute('src'), PHP_URL_SCHEME) === 'https';
 
-					$cached_filename = CACHE_DIR . '/images/' . sha1($src) . '.png';
-
-					if (file_exists($cached_filename)) {
-						$src = SELF_URL_PATH . '/public.php?op=cached_image&hash=' . sha1($src);
+					if ($ttrss_uses_https && !$is_https_url) {
 
 						if ($entry->hasAttribute('srcset')) {
 							$entry->removeAttribute('srcset');
@@ -917,41 +943,22 @@
 							$entry->removeAttribute('sizes');
 						}
 					}
-
-					$entry->setAttribute('src', $src);
 				}
 
-				if ($entry->nodeName == 'img') {
-					if ($entry->hasAttribute('src')) {
-						$is_https_url = parse_url($entry->getAttribute('src'), PHP_URL_SCHEME) === 'https';
+				if (($owner && get_pref("STRIP_IMAGES", $owner)) ||
+						$force_remove_images || $_SESSION["bw_limit"]) {
 
-						if ($ttrss_uses_https && !$is_https_url) {
+					$p = $doc->createElement('p');
 
-							if ($entry->hasAttribute('srcset')) {
-								$entry->removeAttribute('srcset');
-							}
+					$a = $doc->createElement('a');
+					$a->setAttribute('href', $entry->getAttribute('src'));
 
-							if ($entry->hasAttribute('sizes')) {
-								$entry->removeAttribute('sizes');
-							}
-						}
-					}
+					$a->appendChild(new DOMText($entry->getAttribute('src')));
+					$a->setAttribute('target', '_blank');
 
-					if (($owner && get_pref("STRIP_IMAGES", $owner)) ||
-							$force_remove_images || $_SESSION["bw_limit"]) {
+					$p->appendChild($a);
 
-						$p = $doc->createElement('p');
-
-						$a = $doc->createElement('a');
-						$a->setAttribute('href', $entry->getAttribute('src'));
-
-						$a->appendChild(new DOMText($entry->getAttribute('src')));
-						$a->setAttribute('target', '_blank');
-
-						$p->appendChild($a);
-
-						$entry->parentNode->replaceChild($p, $entry);
-					}
+					$entry->parentNode->replaceChild($p, $entry);
 				}
 			}
 
@@ -973,10 +980,10 @@
 			}
 		}
 
-		$allowed_elements = array('a', 'address', 'audio', 'article', 'aside',
+		$allowed_elements = array('a', 'address', 'acronym', 'audio', 'article', 'aside',
 			'b', 'bdi', 'bdo', 'big', 'blockquote', 'body', 'br',
 			'caption', 'cite', 'center', 'code', 'col', 'colgroup',
-			'data', 'dd', 'del', 'details', 'description', 'div', 'dl', 'font',
+			'data', 'dd', 'del', 'details', 'description', 'dfn', 'div', 'dl', 'font',
 			'dt', 'em', 'footer', 'figure', 'figcaption',
 			'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'html', 'i',
 			'img', 'ins', 'kbd', 'li', 'main', 'mark', 'nav', 'noscript',
@@ -1059,6 +1066,10 @@
 				foreach ($entry->attributes as $attr) {
 
 					if (strpos($attr->nodeName, 'on') === 0) {
+						array_push($attrs_to_remove, $attr);
+					}
+
+					if ($attr->nodeName == 'href' && stripos($attr->value, 'javascript:') === 0) {
 						array_push($attrs_to_remove, $attr);
 					}
 
@@ -1290,6 +1301,7 @@
 			num_comments,
 			tag_cache,
 			author,
+			guid,
 			orig_feed_id,
 			note
 			FROM ttrss_entries,ttrss_user_entries
@@ -1310,7 +1322,7 @@
 				$line = $p->hook_render_article($line);
 			}
 
-			$num_comments = $line["num_comments"];
+			$num_comments = (int) $line["num_comments"];
 			$entry_comments = "";
 
 			if ($num_comments > 0) {
@@ -1372,9 +1384,7 @@
 			}
 
 			if ($zoom_mode) {
-				$feed_title = "<a href=\"".htmlspecialchars($line["site_url"]).
-					"\" target=\"_blank\">".
-					htmlspecialchars($line["feed_title"])."</a>";
+				$feed_title = htmlspecialchars($line["feed_title"]);
 
 				$rv['content'] .= "<div class=\"postFeedTitle\">$feed_title</div>";
 
@@ -1772,6 +1782,16 @@
 			$url .= '/';
 		}
 
+		//convert IDNA hostname to punycode if possible
+		if (function_exists("idn_to_ascii")) {
+			$parts = parse_url($url);
+			if (mb_detect_encoding($parts['host']) != 'ASCII')
+			{
+				$parts['host'] = idn_to_ascii($parts['host']);
+				$url = build_url($parts);
+			}
+		}
+
 		if ($url != "http:///")
 			return $url;
 		else
@@ -1930,7 +1950,8 @@
 
 				if (!$ctype) $ctype = __("unknown type");
 
-				$filename = substr($url, strrpos($url, "/")+1);
+				//$filename = substr($url, strrpos($url, "/")+1);
+				$filename = basename($url);
 
 				$player = format_inline_player($url, $ctype);
 
@@ -1939,7 +1960,7 @@
 #				$entry .= " <a target=\"_blank\" href=\"" . htmlspecialchars($url) . "\">" .
 #					$filename . " (" . $ctype . ")" . "</a>";
 
-				$entry = "<div onclick=\"window.open('".htmlspecialchars($url)."')\"
+				$entry = "<div onclick=\"openUrlPopup('".htmlspecialchars($url)."')\"
 					dojoType=\"dijit.MenuItem\">$filename ($ctype)</div>";
 
 				array_push($entries_html, $entry);
@@ -2011,12 +2032,17 @@
 
 			foreach ($entries as $entry) {
 				if ($entry["title"])
-					$title = "&mdash; " . truncate_string($entry["title"], 30);
+					$title = " &mdash; " . truncate_string($entry["title"], 30);
 				else
 					$title = "";
 
-				$rv .= "<div onclick='window.open(\"".htmlspecialchars($entry["url"])."\")'
-					dojoType=\"dijit.MenuItem\">".htmlspecialchars($entry["filename"])."$title</div>";
+				if ($entry["filename"])
+					$filename = truncate_middle(htmlspecialchars($entry["filename"]), 60);
+				else
+					$filename = "";
+
+				$rv .= "<div onclick='openUrlPopup(\"".htmlspecialchars($entry["url"])."\")'
+					dojoType=\"dijit.MenuItem\">".$filename . $title."</div>";
 
 			};
 
@@ -2407,7 +2433,10 @@
 	}
 
 	function theme_valid($theme) {
-		if ($theme == "default.css" || $theme == "night.css") return true; // needed for array_filter
+		$bundled_themes = [ "default.php", "night.css", "compact.css" ];
+		
+		if (in_array($theme, $bundled_themes)) return true;
+
 		$file = "themes/" . basename($theme);
 
 		if (!file_exists($file)) $file = "themes.local/" . basename($theme);
@@ -2442,5 +2471,31 @@
 		if (strlen($tmp) > 0 && substr($tmp, 0, 1) == "/") $tmp = substr($tmp, 1);
 
 		return $tmp;
+	}
+
+	function get_upload_error_message($code) {
+
+		$errors = array(
+			0 => __('There is no error, the file uploaded with success'),
+			1 => __('The uploaded file exceeds the upload_max_filesize directive in php.ini'),
+			2 => __('The uploaded file exceeds the MAX_FILE_SIZE directive that was specified in the HTML form'),
+			3 => __('The uploaded file was only partially uploaded'),
+			4 => __('No file was uploaded'),
+			6 => __('Missing a temporary folder'),
+			7 => __('Failed to write file to disk.'),
+			8 => __('A PHP extension stopped the file upload.'),
+		);
+
+		return $errors[$code];
+	}
+
+	function base64_img($filename) {
+		if (file_exists($filename)) {
+			 $ext = pathinfo($filename, PATHINFO_EXTENSION);
+
+			return "data:image/$ext;base64," . base64_encode(file_get_contents($filename));
+		} else {
+			return "";
+		}
 	}
 ?>

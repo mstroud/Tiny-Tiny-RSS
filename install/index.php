@@ -51,7 +51,7 @@
 			array_push($errors, "PHP support for JSON is required, but was not found.");
 		}
 
-		if ($db_type == "mysql" && !function_exists("mysql_connect") && !function_exists("mysqli_connect")) {
+		if ($db_type == "mysql" && !function_exists("mysqli_connect")) {
 			array_push($errors, "PHP support for MySQL is required for configured $db_type in config.php.");
 		}
 
@@ -112,19 +112,10 @@
 			return $link;
 
 		} else if ($type == "mysql") {
-			if (function_exists("mysqli_connect")) {
-				if ($port)
-					return mysqli_connect($host, $user, $pass, $db, $port);
-				else
-					return mysqli_connect($host, $user, $pass, $db);
-
-			} else {
-				$link = mysql_connect($host, $user, $pass);
-				if ($link) {
-					$result = mysql_select_db($db, $link);
-					if ($result) return $link;
-				}
-			}
+			if ($port)
+				return mysqli_connect($host, $user, $pass, $db, $port);
+			else
+				return mysqli_connect($host, $user, $pass, $db);
 		}
 	}
 
@@ -136,12 +127,6 @@
 		$rv = "";
 
 		$finished = false;
-
-		if (function_exists("mcrypt_decrypt")) {
-			$crypt_key = make_password(24);
-		} else {
-			$crypt_key = "";
-		}
 
 		foreach ($data as $line) {
 			if (preg_match("/define\('DB_TYPE'/", $line)) {
@@ -158,8 +143,6 @@
 				$rv .= "\tdefine('DB_PORT', '$DB_PORT');\n";
 			} else if (preg_match("/define\('SELF_URL_PATH'/", $line)) {
 				$rv .= "\tdefine('SELF_URL_PATH', '$SELF_URL_PATH');\n";
-			} else if (preg_match("/define\('FEED_CRYPT_KEY'/", $line)) {
-				$rv .= "\tdefine('FEED_CRYPT_KEY', '$crypt_key');\n";
 			} else if (!$finished) {
 				$rv .= "$line\n";
 			}
@@ -184,15 +167,12 @@
 			return $result;
 		} else if ($type == "mysql") {
 
-			if (function_exists("mysqli_connect")) {
-				$result = mysqli_query($link, $query);
-			} else {
-				$result = mysql_query($query, $link);
-			}
+			$result = mysqli_query($link, $query);
+
 			if (!$result) {
 				$query = htmlspecialchars($query);
 				if ($die_on_error) {
-					die("Query <i>$query</i> failed: " . ($link ? function_exists("mysqli_connect") ? mysqli_error($link) : mysql_error($link) : "No connection"));
+					die("Query <i>$query</i> failed: " . ($link ? mysqli_error($link) : "No connection"));
 				}
 			}
 			return $result;
@@ -327,6 +307,10 @@
 
 		if (function_exists("curl_init") && ini_get("open_basedir")) {
 			array_push($notices, "CURL and open_basedir combination breaks support for HTTP redirects. See the FAQ for more information.");
+		}
+
+		if (!function_exists("idn_to_ascii")) {
+			array_push($notices, "PHP support for Internationalization Functions is required to handle Internationalized Domain Names.");
 		}
 
 		if (count($notices) > 0) {

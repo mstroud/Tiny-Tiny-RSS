@@ -212,15 +212,15 @@ function notify_real(msg, no_hide, n_type) {
 	msg = "<span class=\"msg\"> " + __(msg) + "</span>";
 
 	if (n_type == 2) {
-		msg = "<span><img src='images/indicator_white.gif'></span>" + msg;
+		msg = "<span><img src=\""+getInitParam("icon_indicator_white")+"\"></span>" + msg;
 		no_hide = true;
 	} else if (n_type == 3) {
-		msg = "<span><img src='images/alert.png'></span>" + msg;
+		msg = "<span><img src=\""+getInitParam("icon_alert")+"\"></span>" + msg;
 	} else if (n_type == 4) {
-		msg = "<span><img src='images/information.png'></span>" + msg;
+		msg = "<span><img src=\""+getInitParam("icon_information")+"\"></span>" + msg;
 	}
 
-	msg += " <span><img src=\"images/cross.png\" class=\"close\" title=\"" +
+	msg += " <span><img src=\""+getInitParam("icon_cross")+"\" class=\"close\" title=\"" +
 		__("Click to close") + "\" onclick=\"notify('')\"></span>";
 
 	n.innerHTML = msg;
@@ -668,7 +668,7 @@ function hotkey_prefix_timeout() {
 			Element.hide('cmdline');
 		}
 
-		setTimeout("hotkey_prefix_timeout()", 1000);
+		setTimeout(hotkey_prefix_timeout, 1000);
 
 	} catch  (e) {
 		exception_error("hotkey_prefix_timeout", e);
@@ -804,6 +804,15 @@ function quickAddFeed() {
 			id: "feedAddDlg",
 			title: __("Subscribe to Feed"),
 			style: "width: 600px",
+			show_error: function(msg) {
+				var elem = $("fadd_error_message");
+
+				elem.innerHTML = msg;
+
+				if (!Element.visible(elem))
+					new Effect.Appear(elem);
+
+			},
 			execute: function() {
 				if (this.validate()) {
 					console.log(dojo.objectToQuery(this.attr('value')));
@@ -811,6 +820,7 @@ function quickAddFeed() {
 					var feed_url = this.attr('value').feed;
 
 					Element.show("feed_add_spinner");
+					Element.hide("fadd_error_message");
 
 					new Ajax.Request("backend.php", {
 						parameters: dojo.objectToQuery(this.attr('value')),
@@ -841,10 +851,10 @@ function quickAddFeed() {
 									updateFeedList();
 									break;
 								case 2:
-									alert(__("Specified URL seems to be invalid."));
+									dialog.show_error(__("Specified URL seems to be invalid."));
 									break;
 								case 3:
-									alert(__("Specified URL doesn't seem to contain any feeds."));
+									dialog.show_error(__("Specified URL doesn't seem to contain any feeds."));
 									break;
 								case 4:
 									feeds = rc['feeds'];
@@ -868,16 +878,16 @@ function quickAddFeed() {
 
 									break;
 								case 5:
-									alert(__("Couldn't download the specified URL: %s").
+									dialog.show_error(__("Couldn't download the specified URL: %s").
 											replace("%s", rc['message']));
 									break;
 								case 6:
-									alert(__("XML validation failed: %s").
+									dialog.show_error(__("XML validation failed: %s").
 											replace("%s", rc['message']));
 									break;
 									break;
 								case 0:
-									alert(__("You are already subscribed to this feed."));
+									dialog.show_error(__("You are already subscribed to this feed."));
 									break;
 								}
 
@@ -1325,7 +1335,7 @@ function unsubscribeFeed(feed_id, title) {
 						updateFeedList();
 					} else {
 						if (feed_id == getActiveFeedId())
-							setTimeout("viewfeed({feed:-5})", 100);
+							setTimeout(function() { viewfeed({feed:-5}) }, 100);
 
 						if (feed_id < 0) updateFeedList();
 					}
@@ -2054,9 +2064,17 @@ function getSelectionText() {
 	return text.stripTags();
 }
 
+function openUrlPopup(url) {
+	var w = window.open("");
+
+	w.opener = null;
+	w.location = url;
+}
 function openArticlePopup(id) {
-	window.open("backend.php?op=article&method=view&mode=raw&html=1&zoom=1&id=" + id +
-		"&csrf_token=" + getInitParam("csrf_token"),
+	var w = window.open("",
 		"ttrss_article_popup",
 		"height=900,width=900,resizable=yes,status=no,location=no,menubar=no,directories=no,scrollbars=yes,toolbar=no");
+
+	w.opener = null;
+	w.location = "backend.php?op=article&method=view&mode=raw&html=1&zoom=1&id=" + id + "&csrf_token=" + getInitParam("csrf_token");
 }

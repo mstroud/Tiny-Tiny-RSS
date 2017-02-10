@@ -150,6 +150,8 @@ function headlines_callback2(transport, offset, background, infscroll_req) {
 					tmp.innerHTML = reply['headlines']['content'];
 					dojo.parser.parse(tmp);
 
+					var new_rows = [];
+
 					while (tmp.hasChildNodes()) {
 						var row = tmp.removeChild(tmp.firstChild);
 
@@ -157,6 +159,16 @@ function headlines_callback2(transport, offset, background, infscroll_req) {
 							dijit.byId("headlines-frame").domNode.appendChild(row);
 
 							loaded_article_ids.push(row.id);
+
+							if (!isCdmMode() || row.hasClassName("cdmFeedTitle")) {
+								new_rows.push(row);
+							} else if (isCdmMode()) {
+								var titleWrap = $$("#" + row.id + " .titleWrap")[0];
+
+								if (titleWrap) {
+									new_rows.push(titleWrap);
+								}
+							}
 						}
 					}
 
@@ -171,7 +183,7 @@ function headlines_callback2(transport, offset, background, infscroll_req) {
 						markHeadline(ids[i]);
 					}
 
-					initHeadlinesMenu();
+					initHeadlinesMenu(new_rows);
 
 					if (_infscroll_disable) {
 						hsp.innerHTML = "<a href='#' onclick='openNextUnreadFeed()'>" +
@@ -1226,21 +1238,21 @@ function unpackVisibleHeadlines() {
 	try {
 		if (!isCdmMode() || !getInitParam("cdm_expanded")) return;
 
-		$$("#headlines-frame > div[id*=RROW]").each(
+		$$("#headlines-frame span.cencw[id]").each(
 			function(child) {
-				if (child.offsetTop <= $("headlines-frame").scrollTop +
+				var row = $("RROW-" + child.id.replace("CENCW-", ""));
+
+				if (row && row.offsetTop <= $("headlines-frame").scrollTop +
 					$("headlines-frame").offsetHeight) {
 
-					var cencw = $("CENCW-" + child.getAttribute("data-article-id"));
+					//console.log("unpacking: " + child.id);
 
-					if (cencw) {
-						cencw.innerHTML = htmlspecialchars_decode(cencw.innerHTML);
-						cencw.setAttribute('id', '');
+					child.innerHTML = htmlspecialchars_decode(child.innerHTML);
+					child.removeAttribute('id');
 
-						PluginHost.run(PluginHost.HOOK_ARTICLE_RENDERED_CDM, child);
+					PluginHost.run(PluginHost.HOOK_ARTICLE_RENDERED_CDM, row);
 
-						Element.show(cencw);
-					}
+					Element.show(child);
 				}
 			}
 		);
@@ -1722,7 +1734,10 @@ function hlClicked(event, id) {
 
 function openArticleInNewWindow(id) {
 	toggleUnread(id, 0, false);
-	window.open("backend.php?op=article&method=redirect&id=" + id);
+
+	var w = window.open("");
+	w.opener = null;
+	w.location = "backend.php?op=article&method=redirect&id=" + id;
 }
 
 function isCdmMode() {
@@ -1983,61 +1998,27 @@ function headlinesMenuCommon(menu) {
 	}
 }
 
-function initHeadlinesMenu() {
+function initHeadlinesMenu(append_rows) {
 	try {
-		if (dijit.byId("headlinesMenu"))
-			dijit.byId("headlinesMenu").destroyRecursive();
+		if (!append_rows) {
 
-		var ids = [];
+			if (dijit.byId("headlinesMenu"))
+				dijit.byId("headlinesMenu").destroyRecursive();
 
-		if (!isCdmMode()) {
-			nodes = $$("#headlines-frame > div[id*=RROW]");
-		} else {
-			nodes = $$("#headlines-frame span[id*=RTITLE]");
-		}
+			var ids = [];
 
-		nodes.each(function(node) {
-			ids.push(node.id);
-		});
-
-		var menu = new dijit.Menu({
-			id: "headlinesMenu",
-			targetNodeIds: ids
-		});
-
-		var tmph = dojo.connect(menu, '_openMyself', function (event) {
-			var callerNode = event.target, match = null, tries = 0;
-
-			while (match == null && callerNode && tries <= 3) {
-
-				match = callerNode.getAttribute("data-article-id")
-				callerNode = callerNode.parentNode;
-				++tries;
+			if (!isCdmMode()) {
+				nodes = $$("#headlines-frame > div[id*=RROW]");
+			} else {
+				nodes = $$("#headlines-frame span[id*=RTITLE]");
 			}
 
-			if (match) this.callerRowId = match;
-
-		});
-
-		headlinesMenuCommon(menu);
-
-		menu.startup();
-
-		/* vgroup feed title menu */
-
-		var nodes = $$("#headlines-frame > div[class='cdmFeedTitle']");
-		var ids = [];
-
-		nodes.each(function(node) {
-			ids.push(node.id);
-		});
-
-		if (ids.length > 0) {
-			if (dijit.byId("headlinesFeedTitleMenu"))
-				dijit.byId("headlinesFeedTitleMenu").destroyRecursive();
+			nodes.each(function (node) {
+				ids.push(node.id);
+			});
 
 			var menu = new dijit.Menu({
-				id: "headlinesFeedTitleMenu",
+				id: "headlinesMenu",
 				targetNodeIds: ids
 			});
 
@@ -2045,7 +2026,8 @@ function initHeadlinesMenu() {
 				var callerNode = event.target, match = null, tries = 0;
 
 				while (match == null && callerNode && tries <= 3) {
-					match = callerNode.getAttribute("data-feed-id")
+
+					match = callerNode.getAttribute("data-article-id")
 					callerNode = callerNode.parentNode;
 					++tries;
 				}
@@ -2054,41 +2036,99 @@ function initHeadlinesMenu() {
 
 			});
 
-			menu.addChild(new dijit.MenuItem({
-				label: __("Select articles in group"),
-				onClick: function(event) {
-					selectArticles("all",
-						"#headlines-frame > div[id*=RROW]"+
-						"[data-orig-feed-id='"+menu.callerRowId+"']");
-
-				}}));
-
-			menu.addChild(new dijit.MenuItem({
-				label: __("Mark group as read"),
-				onClick: function(event) {
-					selectArticles("none");
-					selectArticles("all",
-						"#headlines-frame > div[id*=RROW]"+
-						"[data-orig-feed-id='"+menu.callerRowId+"']");
-
-					catchupSelection();
-				}}));
-
-
-			menu.addChild(new dijit.MenuItem({
-				label: __("Mark feed as read"),
-				onClick: function(event) {
-					catchupFeedInGroup(menu.callerRowId);
-				}}));
-
-			menu.addChild(new dijit.MenuItem({
-				label: __("Edit feed"),
-				onClick: function(event) {
-					editFeed(menu.callerRowId);
-				}}));
+			headlinesMenuCommon(menu);
 
 			menu.startup();
 
+		} else {
+			var menu = dijit.byId("headlinesMenu");
+
+			append_rows.each(function (row) {
+				if (!row.hasClassName("cdmFeedTitle")) {
+					menu.bindDomNode(row);
+				}
+			});
+		}
+
+		/* vgroup feed title menu */
+
+		if (!append_rows) {
+
+			var nodes = $$("#headlines-frame > div[class='cdmFeedTitle']");
+			var ids = [];
+
+			nodes.each(function(node) {
+				ids.push(node.id);
+			});
+
+			if (ids.length > 0) {
+				if (dijit.byId("headlinesFeedTitleMenu"))
+					dijit.byId("headlinesFeedTitleMenu").destroyRecursive();
+
+				var menu = new dijit.Menu({
+					id: "headlinesFeedTitleMenu",
+					targetNodeIds: ids
+				});
+
+				var tmph = dojo.connect(menu, '_openMyself', function (event) {
+					var callerNode = event.target, match = null, tries = 0;
+
+					while (match == null && callerNode && tries <= 3) {
+						match = callerNode.getAttribute("data-feed-id")
+						callerNode = callerNode.parentNode;
+						++tries;
+					}
+
+					if (match) this.callerRowId = match;
+
+				});
+
+				menu.addChild(new dijit.MenuItem({
+					label: __("Select articles in group"),
+					onClick: function (event) {
+						selectArticles("all",
+							"#headlines-frame > div[id*=RROW]" +
+							"[data-orig-feed-id='" + menu.callerRowId + "']");
+
+					}
+				}));
+
+				menu.addChild(new dijit.MenuItem({
+					label: __("Mark group as read"),
+					onClick: function (event) {
+						selectArticles("none");
+						selectArticles("all",
+							"#headlines-frame > div[id*=RROW]" +
+							"[data-orig-feed-id='" + menu.callerRowId + "']");
+
+						catchupSelection();
+					}
+				}));
+
+				menu.addChild(new dijit.MenuItem({
+					label: __("Mark feed as read"),
+					onClick: function (event) {
+						catchupFeedInGroup(menu.callerRowId);
+					}
+				}));
+
+				menu.addChild(new dijit.MenuItem({
+					label: __("Edit feed"),
+					onClick: function (event) {
+						editFeed(menu.callerRowId);
+					}
+				}));
+
+				menu.startup();
+			}
+		} else {
+			var menu = dijit.byId("headlinesFeedTitleMenu");
+
+			append_rows.each(function (row) {
+				if (row.hasClassName("cdmFeedTitle")) {
+					menu.bindDomNode(row);
+				}
+			});
 		}
 
 	} catch (e) {
@@ -2320,7 +2360,7 @@ function updateFloatingTitle(unread_only) {
 function catchupCurrentBatchIfNeeded() {
 	if (catchup_id_batch.length > 0) {
 		window.clearTimeout(catchup_timeout_id);
-		catchup_timeout_id = window.setTimeout('catchupBatchedArticles()', 1000);
+		catchup_timeout_id = window.setTimeout(catchupBatchedArticles, 1000);
 
 		if (catchup_id_batch.length >= 10) {
 			catchupBatchedArticles();

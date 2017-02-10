@@ -202,14 +202,14 @@ class Article extends Handler_Protected {
 
 		$tags_str = join(", ", $tags);
 
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"id\" value=\"$param\">";
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"op\" value=\"article\">";
-		print "<input dojoType=\"dijit.form.TextBox\" style=\"display : none\" name=\"method\" value=\"setArticleTags\">";
+		print_hidden("id", "$param");
+		print_hidden("op", "article");
+		print_hidden("method", "setArticleTags");
 
 		print "<table width='100%'><tr><td>";
 
 		print "<textarea dojoType=\"dijit.form.SimpleTextarea\" rows='4'
-			style='font-size : 12px; width : 98%' id=\"tags_str\"
+			style='height : 100px; font-size : 12px; width : 98%' id=\"tags_str\"
 			name='tags_str'>$tags_str</textarea>
 		<div class=\"autocomplete\" id=\"tags_choices\"
 				style=\"display:none\"></div>";
