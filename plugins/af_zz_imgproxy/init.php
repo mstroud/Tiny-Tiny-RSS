@@ -17,23 +17,35 @@ class Af_Zz_ImgProxy extends Plugin {
 
 		$host->add_hook($host::HOOK_RENDER_ARTICLE, $this);
 		$host->add_hook($host::HOOK_RENDER_ARTICLE_CDM, $this);
-		$host->add_hook($host::HOOK_RENDER_ARTICLE_API, $this);
+		$host->add_hook($host::HOOK_ENCLOSURE_ENTRY, $this);
 
 		$host->add_hook($host::HOOK_PREFS_TAB, $this);
+	}
+
+	function hook_enclosure_entry($enc) {
+		if (preg_match("/image/", $enc["content_type"]) || preg_match("/\.(jpe?g|png|gif|bmp)$/i", $enc["filename"])) {
+			$proxy_all = $this->host->get($this, "proxy_all");
+
+			$enc["content_url"] = $this->rewrite_url_if_needed($enc["content_url"], 0, $proxy_all);
+		}
+
+		return $enc;
 	}
 
 	function hook_render_article($article) {
 		return $this->hook_render_article_cdm($article);
 	}
 
-	function hook_render_article_api($headline) {
-		return $this->hook_render_article_cdm($headline["headline"], true);
-	}
-
 	public function imgproxy() {
 
 		$url = rewrite_relative_url(SELF_URL_PATH, $_REQUEST["url"]);
 		$kind = (int) $_REQUEST["kind"]; // 1 = video
+
+		// called without user context, let's just redirect to original URL
+		if (!$_SESSION["uid"]) {
+			header("Location: $url");
+			return;
+		}
 
 		$extension = $kind == 1 ? '.mp4' : '.png';
 		$local_filename = CACHE_DIR . "/images/" . sha1($url) . $extension;
@@ -60,6 +72,37 @@ class Af_Zz_ImgProxy extends Plugin {
 				}
 
 				print $data;
+			} else {
+				global $fetch_last_error;
+				global $fetch_last_error_code;
+				global $fetch_last_error_content;
+
+				if (function_exists("imagecreate") && !isset($_REQUEST["text"])) {
+					$img = imagecreate(450, 75);
+
+					$bg = imagecolorallocate($img, 255, 255, 255);
+					$textcolor = imagecolorallocate($img, 255, 0, 0);
+
+					imagerectangle($img, 0, 0, 450-1, 75-1, $textcolor);
+
+					imagestring($img, 5, 5, 5, "Proxy request failed", $textcolor);
+					imagestring($img, 5, 5, 30, truncate_middle($url, 46, "..."), $textcolor);
+					imagestring($img, 5, 5, 55, "HTTP Code: $fetch_last_error_code", $textcolor);
+
+					header("Content-type: image/png");
+					print imagepng($img);
+					imagedestroy($img);
+
+				} else {
+					header("Content-type: text/html");
+
+					http_response_code(400);
+
+					print "<h1>Proxy request failed.</h1>";
+					print "<p>Fetch error $fetch_last_error ($fetch_last_error_code)</p>";
+					print "<p>URL: $url</p>";
+					print "<textarea cols='80' rows='25'>" . htmlspecialchars($fetch_last_error_content) . "</textarea>";
+				}
 			}
 		}
 	}
@@ -78,7 +121,7 @@ class Af_Zz_ImgProxy extends Plugin {
 
 		if (($scheme != 'https' && $scheme != "") || $is_remote) {
 			if (strpos($url, "data:") !== 0) {
-				$url = "public.php?op=pluginhandler&plugin=af_zz_imgproxy&pmethod=imgproxy&kind=$kind&url=" .
+				$url = get_self_url_prefix() . "/public.php?op=pluginhandler&plugin=af_zz_imgproxy&pmethod=imgproxy&kind=$kind&url=" .
 					urlencode($url);
 			}
 		}
@@ -101,6 +144,7 @@ class Af_Zz_ImgProxy extends Plugin {
 
 				if ($new_src != $img->getAttribute("src")) {
 					$img->setAttribute("src", $new_src);
+					$img->removeAttribute("srcset");
 
 					$need_saving = true;
 				}
