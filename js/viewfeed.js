@@ -1495,13 +1495,12 @@ function cdmClicked(event, id, in_body) {
 
 			if (elem) elem.removeClassName("active");
 
-			setActiveArticleId(id);
-				
 			if ( old_id != id ) {
 				cdmScrollToArticleId(id, true);
 			}
-			//selectArticles("none");
-			//toggleSelected(id);
+			
+      selectArticles("none");
+			toggleSelected(id);
 
 			var elem = $("RROW-" + id);
 			var article_is_unread = elem.hasClassName("Unread");
