@@ -1,10 +1,6 @@
 <?php
-	define_default('DAEMON_UPDATE_LOGIN_LIMIT', 30);
-	define_default('DAEMON_FEED_LIMIT', 500);
-	define_default('DAEMON_SLEEP_INTERVAL', 120);
-	define_default('_MIN_CACHE_IMAGE_SIZE', 1024);
-
-	function calculate_article_hash($article, $pluginhost) {
+class RSSUtils {
+	static function calculate_article_hash($article, $pluginhost) {
 		$tmp = "";
 
 		foreach ($article as $k => $v) {
@@ -20,12 +16,11 @@
 		return sha1(implode(",", $pluginhost->get_plugin_names()) . $tmp);
 	}
 
-	function update_feedbrowser_cache() {
+	static function update_feedbrowser_cache() {
 
 		$result = db_query("SELECT feed_url, site_url, title, COUNT(id) AS subscribers
-	  		FROM ttrss_feeds WHERE (SELECT COUNT(id) = 0 FROM ttrss_feeds AS tf
-				WHERE tf.feed_url = ttrss_feeds.feed_url
-				AND (private IS true OR auth_login != '' OR auth_pass != '' OR feed_url LIKE '%:%@%/%'))
+			FROM ttrss_feeds WHERE feed_url NOT IN (SELECT feed_url FROM ttrss_feeds
+				WHERE private IS true OR auth_login != '' OR auth_pass != '' OR feed_url LIKE '%:%@%/%')
 				GROUP BY feed_url, site_url, title ORDER BY subscribers DESC LIMIT 1000");
 
 		db_query("BEGIN");
@@ -61,20 +56,7 @@
 
 	}
 
-
-	/**
-	 * Update a feed batch.
-	 * Used by daemons to update n feeds by run.
-	 * Only update feed needing a update, and not being processed
-	 * by another process.
-	 *
-	 * @param mixed $link Database link
-	 * @param integer $limit Maximum number of feeds in update batch. Default to DAEMON_FEED_LIMIT.
-	 * @param boolean $from_http Set to true if you call this function from http to disable cli specific code.
-	 * @param boolean $debug Set to false to disable debug output. Default to true.
-	 * @return void
-	 */
-	function update_daemon_common($limit = DAEMON_FEED_LIMIT, $from_http = false, $debug = true) {
+	static function update_daemon_common($limit = DAEMON_FEED_LIMIT, $debug = true) {
 		// Process all other feeds using last_updated and interval parameters
 
 		$schema_version = get_schema_version();
@@ -201,8 +183,6 @@
 			ORDER BY ttrss_feeds.id $query_limit");
 
 			if (db_num_rows($tmp_result) > 0) {
-				$rss = false;
-
 				while ($tline = db_fetch_assoc($tmp_result)) {
 					if($debug) _debug(" => " . $tline["last_updated"] . ", " . $tline["id"] . " " . $tline["owner_uid"]);
 
@@ -210,7 +190,7 @@
 						array_push($batch_owners, $tline["owner_uid"]);
 
 					$fstarted = microtime(true);
-					$rss = update_rss_feed($tline["id"], true, false);
+					RSSUtils::update_rss_feed($tline["id"], true, false);
 					_debug_suppress(false);
 
 					_debug(sprintf("    %.4f (sec)", microtime(true) - $fstarted));
@@ -228,20 +208,18 @@
 		foreach ($batch_owners as $owner_uid) {
 			_debug("Running housekeeping tasks for user $owner_uid...");
 
-			housekeeping_user($owner_uid);
+			RSSUtils::housekeeping_user($owner_uid);
 		}
 
-		require_once "digest.php";
-
 		// Send feed digests by email if needed.
-		send_headlines_digests($debug);
+		Digest::send_headlines_digests($debug);
 
 		return $nf;
 
-	} // function update_daemon_common
+	}
 
 	// this is used when subscribing
-	function set_basic_feed_info($feed) {
+	static function set_basic_feed_info($feed) {
 
 		$feed = db_escape_string($feed);
 
@@ -301,8 +279,10 @@
 		}
 	}
 
-	// ignore_daemon is not used
-	function update_rss_feed($feed, $ignore_daemon = false, $no_cache = false, $rss = false) {
+	/**
+	 * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+	 */
+	static function update_rss_feed($feed, $no_cache = false) {
 
 		$debug_enabled = defined('DAEMON_EXTENDED_DEBUG') || $_REQUEST['xdebug'];
 
@@ -324,20 +304,18 @@
 		// this is not optimal currently as it fetches stuff separately TODO: optimize
 		if ($title == "[Unknown]") {
 			_debug("setting basic feed info for $feed...");
-			set_basic_feed_info($feed);
+			RSSUtils::set_basic_feed_info($feed);
 		}
 
 		$result = db_query("SELECT id,update_interval,auth_login,
 			feed_url,auth_pass,cache_images,
 			mark_unread_on_update, owner_uid,
-			pubsub_state, auth_pass_encrypted,
-			feed_language
+			auth_pass_encrypted, feed_language
 			FROM ttrss_feeds WHERE id = '$feed'");
 
 		$owner_uid = db_fetch_result($result, 0, "owner_uid");
 		$mark_unread_on_update = sql_bool_to_bool(db_fetch_result($result,
 			0, "mark_unread_on_update"));
-		$pubsub_state = db_fetch_result($result, 0, "pubsub_state");
 		$auth_pass_encrypted = sql_bool_to_bool(db_fetch_result($result,
 			0, "auth_pass_encrypted"));
 
@@ -371,110 +349,98 @@
 		$pluginhost->load($user_plugins, PluginHost::KIND_USER, $owner_uid);
 		$pluginhost->load_data();
 
-		if ($rss && is_object($rss) && get_class($rss) == "FeedParser") {
-			_debug("using previously initialized parser object");
+		$rss_hash = false;
+
+		$force_refetch = isset($_REQUEST["force_refetch"]);
+		$feed_data = "";
+
+		foreach ($pluginhost->get_hooks(PluginHost::HOOK_FETCH_FEED) as $plugin) {
+			$feed_data = $plugin->hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, 0, $auth_login, $auth_pass);
+		}
+
+		// try cache
+		if (!$feed_data &&
+			file_exists($cache_filename) &&
+			is_readable($cache_filename) &&
+			!$auth_login && !$auth_pass &&
+			filemtime($cache_filename) > time() - 30) {
+
+			_debug("using local cache [$cache_filename].", $debug_enabled);
+
+			@$feed_data = file_get_contents($cache_filename);
+
+			if ($feed_data) {
+				$rss_hash = sha1($feed_data);
+			}
+
 		} else {
-			$rss_hash = false;
+			_debug("local cache will not be used for this feed", $debug_enabled);
+		}
 
-			$force_refetch = isset($_REQUEST["force_refetch"]);
-			$feed_data = "";
+		// fetch feed from source
+		if (!$feed_data) {
+			_debug("fetching [$fetch_url]...", $debug_enabled);
 
-			foreach ($pluginhost->get_hooks(PluginHost::HOOK_FETCH_FEED) as $plugin) {
-				$feed_data = $plugin->hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, 0, $auth_login, $auth_pass);
+			if (ini_get("open_basedir") && function_exists("curl_init")) {
+				_debug("not using CURL due to open_basedir restrictions");
 			}
 
-			// try cache
-			if (!$feed_data &&
-				file_exists($cache_filename) &&
-				is_readable($cache_filename) &&
-				!$auth_login && !$auth_pass &&
-				filemtime($cache_filename) > time() - 30) {
+			$feed_data = fetch_file_contents($fetch_url, false,
+				$auth_login, $auth_pass, false,
+				$no_cache ? FEED_FETCH_NO_CACHE_TIMEOUT : FEED_FETCH_TIMEOUT,
+				0);
 
-				_debug("using local cache [$cache_filename].", $debug_enabled);
+			global $fetch_curl_used;
 
-				@$feed_data = file_get_contents($cache_filename);
+			if (!$fetch_curl_used) {
+				$tmp = @gzdecode($feed_data);
 
-				if ($feed_data) {
-					$rss_hash = sha1($feed_data);
+				if ($tmp) $feed_data = $tmp;
+			}
+
+			$feed_data = trim($feed_data);
+
+			_debug("fetch done.", $debug_enabled);
+
+			// cache vanilla feed data for re-use
+			if ($feed_data && !$auth_pass && !$auth_login && is_writable(CACHE_DIR . "/simplepie")) {
+				$new_rss_hash = sha1($feed_data);
+
+				if ($new_rss_hash != $rss_hash) {
+					_debug("saving $cache_filename", $debug_enabled);
+					@file_put_contents($cache_filename, $feed_data);
 				}
+			}
+		}
 
+		if (!$feed_data) {
+			global $fetch_last_error;
+			global $fetch_last_error_code;
+
+			_debug("unable to fetch: $fetch_last_error [$fetch_last_error_code]", $debug_enabled);
+
+			$error_escaped = '';
+
+			// If-Modified-Since
+			if ($fetch_last_error_code != 304) {
+				$error_escaped = db_escape_string($fetch_last_error);
 			} else {
-				_debug("local cache will not be used for this feed", $debug_enabled);
+				_debug("source claims data not modified, nothing to do.", $debug_enabled);
 			}
 
-			// fetch feed from source
-			if (!$feed_data) {
-				_debug("fetching [$fetch_url]...", $debug_enabled);
+			db_query(
+				"UPDATE ttrss_feeds SET last_error = '$error_escaped',
+					last_updated = NOW() WHERE id = '$feed'");
 
-				if (ini_get("open_basedir") && function_exists("curl_init")) {
-					_debug("not using CURL due to open_basedir restrictions");
-				}
-
-				$feed_data = fetch_file_contents($fetch_url, false,
-					$auth_login, $auth_pass, false,
-					$no_cache ? FEED_FETCH_NO_CACHE_TIMEOUT : FEED_FETCH_TIMEOUT,
-					0);
-
-				global $fetch_curl_used;
-
-				if (!$fetch_curl_used) {
-					$tmp = @gzdecode($feed_data);
-
-					if ($tmp) $feed_data = $tmp;
-				}
-
-				$feed_data = trim($feed_data);
-
-				_debug("fetch done.", $debug_enabled);
-
-				// cache vanilla feed data for re-use
-				if ($feed_data && !$auth_pass && !$auth_login && is_writable(CACHE_DIR . "/simplepie")) {
-					$new_rss_hash = sha1($feed_data);
-
-					if ($new_rss_hash != $rss_hash) {
-						_debug("saving $cache_filename", $debug_enabled);
-						@file_put_contents($cache_filename, $feed_data);
-					}
-				}
-			}
-
-			if (!$feed_data) {
-				global $fetch_last_error;
-				global $fetch_last_error_code;
-
-				_debug("unable to fetch: $fetch_last_error [$fetch_last_error_code]", $debug_enabled);
-
-				$error_escaped = '';
-
-				// If-Modified-Since
-				if ($fetch_last_error_code != 304) {
-					$error_escaped = db_escape_string($fetch_last_error);
-				} else {
-					_debug("source claims data not modified, nothing to do.", $debug_enabled);
-				}
-
-				db_query(
-					"UPDATE ttrss_feeds SET last_error = '$error_escaped',
-						last_updated = NOW() WHERE id = '$feed'");
-
-				return;
-			}
+			return;
 		}
 
 		foreach ($pluginhost->get_hooks(PluginHost::HOOK_FEED_FETCHED) as $plugin) {
 			$feed_data = $plugin->hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed);
 		}
 
-		// set last update to now so if anything *simplepie* crashes later we won't be
-		// continuously failing on the same feed
-		//db_query("UPDATE ttrss_feeds SET last_updated = NOW() WHERE id = '$feed'");
-
-		if (!$rss) {
-			$rss = new FeedParser($feed_data);
-			$rss->init();
-		}
-
-//		print_r($rss);
+		$rss = new FeedParser($feed_data);
+		$rss->init();
 
 		$feed = db_escape_string($feed);
 
@@ -520,22 +486,22 @@
 
 				_debug("checking favicon...", $debug_enabled);
 
-				check_feed_favicon($site_url, $feed);
+				RSSUtils::check_feed_favicon($site_url, $feed);
 				$favicon_modified_new = @filemtime($favicon_file);
 
 				if ($favicon_modified_new > $favicon_modified)
 					$favicon_avg_color = '';
 
 				if (file_exists($favicon_file) && function_exists("imagecreatefromstring") && $favicon_avg_color == '') {
-						require_once "colors.php";
+					require_once "colors.php";
 
-						db_query("UPDATE ttrss_feeds SET favicon_avg_color = 'fail' WHERE
+					db_query("UPDATE ttrss_feeds SET favicon_avg_color = 'fail' WHERE
 							id = '$feed'");
 
-						$favicon_color = db_escape_string(
-							calculate_avg_color($favicon_file));
+					$favicon_color = db_escape_string(
+						calculate_avg_color($favicon_file));
 
-						$favicon_colorstring = ",favicon_avg_color = '".$favicon_color."'";
+					$favicon_colorstring = ",favicon_avg_color = '".$favicon_color."'";
 				} else if ($favicon_avg_color == 'fail') {
 					_debug("floicon failed on this file, not trying to recalculate avg color", $debug_enabled);
 				}
@@ -562,55 +528,6 @@
 				return; // no articles
 			}
 
-			if ($pubsub_state != 2 && PUBSUBHUBBUB_ENABLED) {
-
-				_debug("checking for PUSH hub...", $debug_enabled);
-
-				$feed_hub_url = false;
-
-				$links = $rss->get_links('hub');
-
-				if ($links && is_array($links)) {
-					foreach ($links as $l) {
-						$feed_hub_url = $l;
-						break;
-					}
-				}
-
-				_debug("feed hub url: $feed_hub_url", $debug_enabled);
-
-				$feed_self_url = $fetch_url;
-
-				$links = $rss->get_links('self');
-
-				if ($links && is_array($links)) {
-					foreach ($links as $l) {
-						$feed_self_url = $l;
-						break;
-					}
-				}
-
-				_debug("feed self url = $feed_self_url");
-
-				if ($feed_hub_url && $feed_self_url && function_exists('curl_init') &&
-					!ini_get("open_basedir")) {
-
-					require_once 'lib/pubsubhubbub/Subscriber.php';
-
-					$callback_url = get_self_url_prefix() .
-						"/public.php?op=pubsub&id=$feed";
-
-					$s = new Pubsubhubbub\Subscriber\Subscriber($feed_hub_url, $callback_url);
-
-					$rc = $s->subscribe($feed_self_url);
-
-					_debug("feed hub url found, subscribe request sent. [rc=$rc]", $debug_enabled);
-
-					db_query("UPDATE ttrss_feeds SET pubsub_state = 1
-						WHERE id = '$feed'");
-				}
-			}
-
 			_debug("processing articles...", $debug_enabled);
 
 			$tstart = time();
@@ -627,7 +544,7 @@
 
 				$entry_guid = $item->get_id();
 				if (!$entry_guid) $entry_guid = $item->get_link();
-				if (!$entry_guid) $entry_guid = make_guid_from_title($item->get_title());
+				if (!$entry_guid) $entry_guid = RSSUtils::make_guid_from_title($item->get_title());
 				if (!$entry_guid) continue;
 
 				$entry_guid = "$owner_uid,$entry_guid";
@@ -707,10 +624,10 @@
 				if (db_num_rows($result) != 0) {
 					$base_entry_id = db_fetch_result($result, 0, "id");
 					$entry_stored_hash = db_fetch_result($result, 0, "content_hash");
-					$article_labels = get_article_labels($base_entry_id, $owner_uid);
+					$article_labels = Article::get_article_labels($base_entry_id, $owner_uid);
 					$entry_language = db_fetch_result($result, 0, "lang");
 
-					$existing_tags = get_article_tags($base_entry_id, $owner_uid);
+					$existing_tags = Article::get_article_tags($base_entry_id, $owner_uid);
 					$entry_tags = array_unique(array_merge($entry_tags, $existing_tags));
 
 				} else {
@@ -736,10 +653,10 @@
 						"fetch_url" => $fetch_url,
 						"site_url" => $site_url,
 						"cache_images" => $cache_images)
-					);
+				);
 
 				$entry_plugin_data = "";
-				$entry_current_hash = calculate_article_hash($article, $pluginhost);
+				$entry_current_hash = RSSUtils::calculate_article_hash($article, $pluginhost);
 
 				_debug("article hash: $entry_current_hash [stored=$entry_stored_hash]", $debug_enabled);
 
@@ -797,8 +714,8 @@
 
 				$matched_rules = array();
 
-				$article_filters = get_article_filters($filters, $article["title"],
-					$article["content"], $article["link"], 0, $article["author"],
+				$article_filters = RSSUtils::get_article_filters($filters, $article["title"],
+					$article["content"], $article["link"], $article["author"],
 					$article["tags"], $matched_rules);
 
 				if ($debug_enabled) {
@@ -815,7 +732,7 @@
 					}
 				}
 
-				$plugin_filter_names = find_article_filters($article_filters, "plugin");
+				$plugin_filter_names = RSSUtils::find_article_filters($article_filters, "plugin");
 				$plugin_filter_actions = $pluginhost->get_filter_actions();
 
 				if (count($plugin_filter_names) > 0) {
@@ -865,7 +782,7 @@
 				_debug("force catchup: $entry_force_catchup");
 
 				if ($cache_images && is_writable(CACHE_DIR . '/images'))
-					cache_images($entry_content, $site_url, $debug_enabled);
+					RSSUtils::cache_media($entry_content, $site_url, $debug_enabled);
 
 				$entry_content = db_escape_string($entry_content, false);
 
@@ -876,11 +793,11 @@
 
 				if (db_num_rows($result) == 0) {
 
-					_debug("base guid [$entry_guid] not found", $debug_enabled);
+					_debug("base guid [$entry_guid or $entry_guid_hashed] not found, creating...", $debug_enabled);
 
 					// base post entry does not exist, create it
 
-					$result = db_query(
+					db_query(
 						"INSERT INTO ttrss_entries
 							(title,
 							guid,
@@ -912,8 +829,6 @@
 							'$entry_language',
 							'$entry_author')");
 
-				} else {
-					$base_entry_id = db_fetch_result($result, 0, "id");
 				}
 
 				// now it should exist, if not - bad luck then
@@ -939,12 +854,12 @@
 							id = '$ref_id'");
 					} */
 
-					if (find_article_filter($article_filters, "filter")) {
+					if (RSSUtils::find_article_filter($article_filters, "filter")) {
 						//db_query("COMMIT"); // close transaction in progress
 						continue;
 					}
 
-					$score = calculate_article_score($article_filters) + $entry_score_modifier;
+					$score = RSSUtils::calculate_article_score($article_filters) + $entry_score_modifier;
 
 					_debug("initial score: $score [including plugin modifier: $entry_score_modifier]", $debug_enabled);
 
@@ -962,7 +877,7 @@
 
 						_debug("user record not found, creating...", $debug_enabled);
 
-						if ($score >= -500 && !find_article_filter($article_filters, 'catchup') && !$entry_force_catchup) {
+						if ($score >= -500 && !RSSUtils::find_article_filter($article_filters, 'catchup') && !$entry_force_catchup) {
 							$unread = 'true';
 							$last_read_qpart = 'NULL';
 						} else {
@@ -970,13 +885,13 @@
 							$last_read_qpart = 'NOW()';
 						}
 
-						if (find_article_filter($article_filters, 'mark') || $score > 1000) {
+						if (RSSUtils::find_article_filter($article_filters, 'mark') || $score > 1000) {
 							$marked = 'true';
 						} else {
 							$marked = 'false';
 						}
 
-						if (find_article_filter($article_filters, 'publish')) {
+						if (RSSUtils::find_article_filter($article_filters, 'publish')) {
 							$published = 'true';
 						} else {
 							$published = 'false';
@@ -993,16 +908,6 @@
 							VALUES ('$ref_id', '$owner_uid', '$feed', $unread,
 								$last_read_qpart, $marked, $published, '$score', '', '',
 								'', $last_marked, $last_published)");
-
-						if (PUBSUBHUBBUB_HUB && $published == 'true') {
-							$rss_link = get_self_url_prefix() .
-								"/public.php?op=rss&id=-2&key=" .
-								get_feed_access_key(-2, false, $owner_uid);
-
-							$p = new pubsubhubbub\publisher\Publisher(PUBSUBHUBBUB_HUB);
-
-							/* $pubsub_result = */ $p->publish_update($rss_link);
-						}
 
 						$result = db_query(
 							"SELECT int_id FROM ttrss_user_entries WHERE
@@ -1022,7 +927,7 @@
 					_debug("RID: $entry_ref_id, IID: $entry_int_id", $debug_enabled);
 
 					if (DB_TYPE == "pgsql") {
-					   $tsvector_combined = db_escape_string(mb_substr($entry_title . ' ' . strip_tags(str_replace('<', ' <', $entry_content)),
+						$tsvector_combined = db_escape_string(mb_substr($entry_title . ' ' . strip_tags(str_replace('<', ' <', $entry_content)),
 							0, 1000000));
 
 						$tsvector_qpart = "tsvector_combined = to_tsvector('$feed_language', '$tsvector_combined'),";
@@ -1060,12 +965,12 @@
 				_debug("assigning labels [other]...", $debug_enabled);
 
 				foreach ($article_labels as $label) {
-					label_add_article($entry_ref_id, $label[1], $owner_uid);
+					Labels::add_article($entry_ref_id, $label[1], $owner_uid);
 				}
 
 				_debug("assigning labels [filters]...", $debug_enabled);
 
-				assign_article_to_label_filters($entry_ref_id, $article_filters,
+				RSSUtils::assign_article_to_label_filters($entry_ref_id, $article_filters,
 					$owner_uid, $article_labels);
 
 				_debug("looking for enclosures...", $debug_enabled);
@@ -1079,10 +984,14 @@
 				if (is_array($encs)) {
 					foreach ($encs as $e) {
 						$e_item = array(
-							$e->link, $e->type, $e->length, $e->title, $e->width, $e->height);
+							rewrite_relative_url($site_url, $e->link),
+							$e->type, $e->length, $e->title, $e->width, $e->height);
 						array_push($enclosures, $e_item);
 					}
 				}
+
+				if ($cache_images && is_writable(CACHE_DIR . '/images'))
+					RSSUtils::cache_enclosures($enclosures, $site_url, $debug_enabled);
 
 				if ($debug_enabled) {
 					_debug("article enclosures:", $debug_enabled);
@@ -1169,12 +1078,12 @@
 							WHERE tag_name = '$tag' AND post_int_id = '$entry_int_id' AND
 							owner_uid = '$owner_uid' LIMIT 1");
 
-							if ($result && db_num_rows($result) == 0) {
+						if ($result && db_num_rows($result) == 0) {
 
-								db_query("INSERT INTO ttrss_tags
+							db_query("INSERT INTO ttrss_tags
 									(owner_uid,tag_name,post_int_id)
 									VALUES ('$owner_uid','$tag', '$entry_int_id')");
-							}
+						}
 
 						array_push($tags_to_cache, $tag);
 					}
@@ -1221,14 +1130,39 @@
 				last_updated = NOW() WHERE id = '$feed'");
 
 			unset($rss);
+			return;
 		}
 
 		_debug("done", $debug_enabled);
 
-		return $rss;
+		return true;
 	}
 
-	function cache_images($html, $site_url, $debug) {
+	static function cache_enclosures($enclosures, $site_url, $debug) {
+		foreach ($enclosures as $enc) {
+
+			if (preg_match("/(image|audio|video)/", $enc[1])) {
+
+				$src = rewrite_relative_url($site_url, $enc[0]);
+
+				$local_filename = CACHE_DIR . "/images/" . sha1($src);
+
+				if ($debug) _debug("cache_enclosures: downloading: $src to $local_filename");
+
+				if (!file_exists($local_filename)) {
+					$file_content = fetch_file_contents($src);
+
+					if ($file_content && strlen($file_content) > _MIN_CACHE_FILE_SIZE) {
+						file_put_contents($local_filename, $file_content);
+					}
+				} else {
+					touch($local_filename);
+				}
+			}
+		}
+	}
+
+	static function cache_media($html, $site_url, $debug) {
 		libxml_use_internal_errors(true);
 
 		$charset_hack = '<head>
@@ -1239,21 +1173,20 @@
 		$doc->loadHTML($charset_hack . $html);
 		$xpath = new DOMXPath($doc);
 
-		$entries = $xpath->query('(//img[@src])|(//video/source[@src])');
+		$entries = $xpath->query('(//img[@src])|(//video/source[@src])|(//audio/source[@src])');
 
 		foreach ($entries as $entry) {
 			if ($entry->hasAttribute('src') && strpos($entry->getAttribute('src'), "data:") !== 0) {
 				$src = rewrite_relative_url($site_url, $entry->getAttribute('src'));
 
-				$extension = $entry->tagName == 'source' ? '.mp4' : '.png';
-				$local_filename = CACHE_DIR . "/images/" . sha1($src) . $extension;
+				$local_filename = CACHE_DIR . "/images/" . sha1($src);
 
-				if ($debug) _debug("cache_images: downloading: $src to $local_filename");
+				if ($debug) _debug("cache_media: downloading: $src to $local_filename");
 
 				if (!file_exists($local_filename)) {
 					$file_content = fetch_file_contents($src);
 
-					if ($file_content && strlen($file_content) > _MIN_CACHE_IMAGE_SIZE) {
+					if ($file_content && strlen($file_content) > _MIN_CACHE_FILE_SIZE) {
 						file_put_contents($local_filename, $file_content);
 					}
 				} else {
@@ -1263,7 +1196,7 @@
 		}
 	}
 
-	function expire_error_log($debug) {
+	static function expire_error_log($debug) {
 		if ($debug) _debug("Removing old error log entries...");
 
 		if (DB_TYPE == "pgsql") {
@@ -1276,7 +1209,7 @@
 
 	}
 
-	function expire_lock_files($debug) {
+	static function expire_lock_files($debug) {
 		//if ($debug) _debug("Removing old lock files...");
 
 		$num_deleted = 0;
@@ -1297,7 +1230,7 @@
 		if ($debug) _debug("Removed $num_deleted old lock files.");
 	}
 
-	function expire_cached_files($debug) {
+	static function expire_cached_files($debug) {
 		foreach (array("simplepie", "images", "export", "upload") as $dir) {
 			$cache_dir = CACHE_DIR . "/$dir";
 
@@ -1324,13 +1257,13 @@
 	}
 
 	/**
-	* Source: http://www.php.net/manual/en/function.parse-url.php#104527
-	* Returns the url query as associative array
-	*
-	* @param    string    query
-	* @return    array    params
-	*/
-	function convertUrlQuery($query) {
+	 * Source: http://www.php.net/manual/en/function.parse-url.php#104527
+	 * Returns the url query as associative array
+	 *
+	 * @param    string    query
+	 * @return    array    params
+	 */
+	static function convertUrlQuery($query) {
 		$queryParts = explode('&', $query);
 
 		$params = array();
@@ -1343,7 +1276,7 @@
 		return $params;
 	}
 
-	function get_article_filters($filters, $title, $content, $link, $timestamp, $author, $tags, &$matched_rules = false) {
+	static function get_article_filters($filters, $title, $content, $link, $author, $tags, &$matched_rules = false) {
 		$matches = array();
 
 		foreach ($filters as $filter) {
@@ -1360,35 +1293,35 @@
 					continue;
 
 				switch ($rule["type"]) {
-				case "title":
-					$match = @preg_match("/$reg_exp/iu", $title);
-					break;
-				case "content":
-					// we don't need to deal with multiline regexps
-					$content = preg_replace("/[\r\n\t]/", "", $content);
+					case "title":
+						$match = @preg_match("/$reg_exp/iu", $title);
+						break;
+					case "content":
+						// we don't need to deal with multiline regexps
+						$content = preg_replace("/[\r\n\t]/", "", $content);
 
-					$match = @preg_match("/$reg_exp/iu", $content);
-					break;
-				case "both":
-					// we don't need to deal with multiline regexps
-					$content = preg_replace("/[\r\n\t]/", "", $content);
+						$match = @preg_match("/$reg_exp/iu", $content);
+						break;
+					case "both":
+						// we don't need to deal with multiline regexps
+						$content = preg_replace("/[\r\n\t]/", "", $content);
 
-					$match = (@preg_match("/$reg_exp/iu", $title) || @preg_match("/$reg_exp/iu", $content));
-					break;
-				case "link":
-					$match = @preg_match("/$reg_exp/iu", $link);
-					break;
-				case "author":
-					$match = @preg_match("/$reg_exp/iu", $author);
-					break;
-				case "tag":
-					foreach ($tags as $tag) {
-						if (@preg_match("/$reg_exp/iu", $tag)) {
-							$match = true;
-							break;
+						$match = (@preg_match("/$reg_exp/iu", $title) || @preg_match("/$reg_exp/iu", $content));
+						break;
+					case "link":
+						$match = @preg_match("/$reg_exp/iu", $link);
+						break;
+					case "author":
+						$match = @preg_match("/$reg_exp/iu", $author);
+						break;
+					case "tag":
+						foreach ($tags as $tag) {
+							if (@preg_match("/$reg_exp/iu", $tag)) {
+								$match = true;
+								break;
+							}
 						}
-					}
-					break;
+						break;
 				}
 
 				if ($rule_inverse) $match = !$match;
@@ -1423,7 +1356,7 @@
 		return $matches;
 	}
 
-	function find_article_filter($filters, $filter_name) {
+	static function find_article_filter($filters, $filter_name) {
 		foreach ($filters as $f) {
 			if ($f["type"] == $filter_name) {
 				return $f;
@@ -1432,7 +1365,7 @@
 		return false;
 	}
 
-	function find_article_filters($filters, $filter_name) {
+	static function find_article_filters($filters, $filter_name) {
 		$results = array();
 
 		foreach ($filters as $f) {
@@ -1443,7 +1376,7 @@
 		return $results;
 	}
 
-	function calculate_article_score($filters) {
+	static function calculate_article_score($filters) {
 		$score = 0;
 
 		foreach ($filters as $f) {
@@ -1454,7 +1387,7 @@
 		return $score;
 	}
 
-	function labels_contains_caption($labels, $caption) {
+	static function labels_contains_caption($labels, $caption) {
 		foreach ($labels as $label) {
 			if ($label[1] == $caption) {
 				return true;
@@ -1464,31 +1397,22 @@
 		return false;
 	}
 
-	function assign_article_to_label_filters($id, $filters, $owner_uid, $article_labels) {
+	static function assign_article_to_label_filters($id, $filters, $owner_uid, $article_labels) {
 		foreach ($filters as $f) {
 			if ($f["type"] == "label") {
-				if (!labels_contains_caption($article_labels, $f["param"])) {
-					label_add_article($id, $f["param"], $owner_uid);
+				if (!RSSUtils::labels_contains_caption($article_labels, $f["param"])) {
+					Labels::add_article($id, $f["param"], $owner_uid);
 				}
 			}
 		}
 	}
 
-	function make_guid_from_title($title) {
+	static function make_guid_from_title($title) {
 		return preg_replace("/[ \"\',.:;]/", "-",
 			mb_strtolower(strip_tags($title), 'utf-8'));
 	}
 
-	/* function verify_feed_xml($feed_data) {
-		libxml_use_internal_errors(true);
-		$doc = new DOMDocument();
-		$doc->loadXML($feed_data);
-		$error = libxml_get_last_error();
-		libxml_clear_errors();
-		return $error;
-	} */
-
-	function cleanup_counters_cache($debug) {
+	static function cleanup_counters_cache($debug) {
 		$result = db_query("DELETE FROM ttrss_counters_cache
 			WHERE feed_id > 0 AND
 			(SELECT COUNT(id) FROM ttrss_feeds WHERE
@@ -1503,10 +1427,10 @@
 				ttrss_cat_counters_cache.owner_uid = ttrss_feed_categories.owner_uid) = 0");
 		$crows = db_affected_rows($result);
 
-		_debug("Removed $frows (feeds) $crows (cats) orphaned counter cache entries.");
+		if ($debug) _debug("Removed $frows (feeds) $crows (cats) orphaned counter cache entries.");
 	}
 
-	function housekeeping_user($owner_uid) {
+	static function housekeeping_user($owner_uid) {
 		$tmph = new PluginHost();
 
 		load_user_plugins($owner_uid, $tmph);
@@ -1514,20 +1438,74 @@
 		$tmph->run_hooks(PluginHost::HOOK_HOUSE_KEEPING, "hook_house_keeping", "");
 	}
 
-	function housekeeping_common($debug) {
-		expire_cached_files($debug);
-		expire_lock_files($debug);
-		expire_error_log($debug);
+	static function housekeeping_common($debug) {
+		RSSUtils::expire_cached_files($debug);
+		RSSUtils::expire_lock_files($debug);
+		RSSUtils::expire_error_log($debug);
 
-		$count = update_feedbrowser_cache();
+		$count = RSSUtils::update_feedbrowser_cache();
 		_debug("Feedbrowser updated, $count feeds processed.");
 
-		purge_orphans( true);
-		cleanup_counters_cache($debug);
+		Article::purge_orphans( true);
+		RSSUtils::cleanup_counters_cache($debug);
 
 		//$rc = cleanup_tags( 14, 50000);
 		//_debug("Cleaned $rc cached tags.");
 
 		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_HOUSE_KEEPING, "hook_house_keeping", "");
 	}
-?>
+
+	static function check_feed_favicon($site_url, $feed) {
+		#		print "FAVICON [$site_url]: $favicon_url\n";
+
+		$icon_file = ICONS_DIR . "/$feed.ico";
+
+		if (!file_exists($icon_file)) {
+			$favicon_url = get_favicon_url($site_url);
+
+			if ($favicon_url) {
+				// Limiting to "image" type misses those served with text/plain
+				$contents = fetch_file_contents($favicon_url); // , "image");
+
+				if ($contents) {
+					// Crude image type matching.
+					// Patterns gleaned from the file(1) source code.
+					if (preg_match('/^\x00\x00\x01\x00/', $contents)) {
+						// 0       string  \000\000\001\000        MS Windows icon resource
+						//error_log("check_feed_favicon: favicon_url=$favicon_url isa MS Windows icon resource");
+					}
+					elseif (preg_match('/^GIF8/', $contents)) {
+						// 0       string          GIF8            GIF image data
+						//error_log("check_feed_favicon: favicon_url=$favicon_url isa GIF image");
+					}
+					elseif (preg_match('/^\x89PNG\x0d\x0a\x1a\x0a/', $contents)) {
+						// 0       string          \x89PNG\x0d\x0a\x1a\x0a         PNG image data
+						//error_log("check_feed_favicon: favicon_url=$favicon_url isa PNG image");
+					}
+					elseif (preg_match('/^\xff\xd8/', $contents)) {
+						// 0       beshort         0xffd8          JPEG image data
+						//error_log("check_feed_favicon: favicon_url=$favicon_url isa JPG image");
+					}
+					else {
+						//error_log("check_feed_favicon: favicon_url=$favicon_url isa UNKNOWN type");
+						$contents = "";
+					}
+				}
+
+				if ($contents) {
+					$fp = @fopen($icon_file, "w");
+
+					if ($fp) {
+						fwrite($fp, $contents);
+						fclose($fp);
+						chmod($icon_file, 0644);
+					}
+				}
+			}
+			return $icon_file;
+		}
+	}
+
+
+
+}

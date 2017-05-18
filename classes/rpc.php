@@ -105,7 +105,7 @@ class RPC extends Handler_Protected {
 		$login = $this->dbh->escape_string($_REQUEST['login']);
 		$pass = trim($_REQUEST['pass']); // escaped later
 
-		$rc = subscribe_to_feed($feed, $cat, $login, $pass);
+		$rc = Feeds::subscribe_to_feed($feed, $cat, $login, $pass);
 
 		print json_encode(array("result" => $rc));
 	}
@@ -151,7 +151,7 @@ class RPC extends Handler_Protected {
 		$this->dbh->query("DELETE FROM ttrss_user_entries
 			WHERE ref_id IN ($ids) AND owner_uid = " . $_SESSION["uid"]);
 
-		purge_orphans();
+		Article::purge_orphans();
 
 		print json_encode(array("message" => "UPDATE_COUNTERS"));
 	}
@@ -274,20 +274,7 @@ class RPC extends Handler_Protected {
 			published = $pub, last_published = NOW()
 			WHERE ref_id = '$id' AND owner_uid = " . $_SESSION["uid"]);
 
-		$pubsub_result = false;
-
-		if (PUBSUBHUBBUB_HUB) {
-			$rss_link = get_self_url_prefix() .
-				"/public.php?op=rss&id=-2&key=" .
-				get_feed_access_key(-2, false);
-
-			$p = new pubsubhubbub\publisher\Publisher(PUBSUBHUBBUB_HUB);
-
-			$pubsub_result = $p->publish_update($rss_link);
-		}
-
-		print json_encode(array("message" => "UPDATE_COUNTERS",
-			"pubsub_result" => $pubsub_result));
+		print json_encode(array("message" => "UPDATE_COUNTERS"));
 	}
 
 	function getAllCounters() {
@@ -297,8 +284,8 @@ class RPC extends Handler_Protected {
 
 		if (!empty($_REQUEST['seq'])) $reply['seq'] = (int) $_REQUEST['seq'];
 
-		if ($last_article_id != getLastArticleId()) {
-			$reply['counters'] = getAllCounters();
+		if ($last_article_id != Article::getLastArticleId()) {
+			$reply['counters'] = Counters::getAllCounters();
 		}
 
 		$reply['runtime-info'] = make_runtime_info();
@@ -311,7 +298,7 @@ class RPC extends Handler_Protected {
 		$ids = explode(",", $this->dbh->escape_string($_REQUEST["ids"]));
 		$cmode = sprintf("%d", $_REQUEST["cmode"]);
 
-		catchupArticlesById($ids, $cmode);
+		Article::catchupArticlesById($ids, $cmode);
 
 		print json_encode(array("message" => "UPDATE_COUNTERS", "ids" => $ids));
 	}
@@ -450,8 +437,10 @@ class RPC extends Handler_Protected {
 		$feed_id = $this->dbh->escape_string($_REQUEST['feed_id']);
 		$is_cat = $this->dbh->escape_string($_REQUEST['is_cat']) == "true";
 		$mode = $this->dbh->escape_string($_REQUEST['mode']);
+		$search_query = $this->dbh->escape_string($_REQUEST['search_query']);
+		$search_lang = $this->dbh->escape_string($_REQUEST['search_lang']);
 
-		catchup_feed($feed_id, $is_cat, false, false, $mode);
+		Feeds::catchup_feed($feed_id, $is_cat, false, $mode, [$search_query, $search_lang]);
 
 		print json_encode(array("message" => "UPDATE_COUNTERS"));
 	}
@@ -536,8 +525,6 @@ class RPC extends Handler_Protected {
 
 		$feed_id = -1;
 
-		require_once "rssfuncs.php";
-
 		$num_updated = 0;
 
 		$tstart = time();
@@ -546,7 +533,7 @@ class RPC extends Handler_Protected {
 			$feed_id = $line["id"];
 
 			if (time() - $tstart < ini_get("max_execution_time") * 0.7) {
-				update_rss_feed($feed_id, true);
+				RSSUtils::update_rss_feed($feed_id, true);
 				++$num_updated;
 			} else {
 				break;
@@ -554,7 +541,7 @@ class RPC extends Handler_Protected {
 		}
 
 		// Purge orphans and cleanup tags
-		purge_orphans();
+		Article::purge_orphans();
 		//cleanup_tags(14, 50000);
 
 		if ($num_updated > 0) {
@@ -618,16 +605,6 @@ class RPC extends Handler_Protected {
 			published = NOT published,last_published = NOW()
 			WHERE ($ids_qpart) AND owner_uid = " . $_SESSION["uid"]);
 		}
-
-		if (PUBSUBHUBBUB_HUB) {
-			$rss_link = get_self_url_prefix() .
-				"/public.php?op=rss&id=-2&key=" .
-				get_feed_access_key(-2, false);
-
-			$p = new pubsubhubbub\publisher\Publisher(PUBSUBHUBBUB_HUB);
-
-			/* $pubsub_result = */ $p->publish_update($rss_link);
-		}
 	}
 
 	function getlinktitlebyid() {
@@ -647,15 +624,19 @@ class RPC extends Handler_Protected {
 	}
 
 	function log() {
-		$logmsg = $this->dbh->escape_string($_REQUEST['logmsg']);
+		$msg = $this->dbh->escape_string($_REQUEST['msg']);
+		$file = $this->dbh->escape_string(basename($_REQUEST['file']));
+		$line = (int) $_REQUEST['line'];
+		$context = $this->dbh->escape_string($_REQUEST['context']);
 
-		if ($logmsg) {
+		if ($msg) {
 			Logger::get()->log_error(E_USER_WARNING,
-				$logmsg, '[client-js]', 0, false);
-		}
+				$msg, 'client-js:' . $file, $line, $context);
 
-		echo json_encode(array("message" => "HOST_ERROR_LOGGED"));
+			echo json_encode(array("message" => "HOST_ERROR_LOGGED"));
+		} else {
+			echo json_encode(array("error" => "MESSAGE_NOT_FOUND"));
+		}
 
 	}
 }
-?>

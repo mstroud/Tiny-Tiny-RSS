@@ -22,6 +22,9 @@ class Plugin {
 		return array();
 	}
 
+	/**
+	 * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+	 */
 	function is_public_method($method) {
 		return false;
 	}
@@ -38,4 +41,3 @@ class Plugin {
 		return Plugin::API_VERSION_COMPAT;
 	}
 }
-?>

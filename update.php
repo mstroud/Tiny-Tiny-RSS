@@ -9,7 +9,6 @@
 
 	require_once "autoload.php";
 	require_once "functions.php";
-	require_once "rssfuncs.php";
 	require_once "config.php";
 	require_once "sanity_check.php";
 	require_once "db.php";
@@ -66,7 +65,7 @@
 		<div class="floatingLogo"><img src="images/logo_small.png"></div>
 		<h1><?php echo __("Tiny Tiny RSS data update script.") ?></h1>
 
-		<?php print_error("Please run this script from the command line. Use option \"-help\" to display command help if this error is displayed erroneously."); ?>
+		<?php print_error("Please run this script from the command line. Use option \"--help\" to display command help if this error is displayed erroneously."); ?>
 
 		</body></html>
 	<?php
@@ -165,14 +164,14 @@
 	}
 
 	if (isset($options["feeds"])) {
-		update_daemon_common();
-		housekeeping_common(true);
+		RSSUtils::update_daemon_common();
+		RSSUtils::housekeeping_common(true);
 
 		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_UPDATE_TASK, "hook_update_task", $op);
 	}
 
 	if (isset($options["feedbrowser"])) {
-		$count = update_feedbrowser_cache();
+		$count = RSSUtils::update_feedbrowser_cache();
 		print "Finished, $count feeds processed.\n";
 	}
 
@@ -182,8 +181,12 @@
          $log = isset($options['log']) ? '--log '.$options['log'] : '';
 
 			passthru(PHP_EXECUTABLE . " " . $argv[0] ." --daemon-loop $quiet $log");
-			_debug("Sleeping for " . DAEMON_SLEEP_INTERVAL . " seconds...");
-			sleep(DAEMON_SLEEP_INTERVAL);
+
+			// let's enforce a minimum spawn interval as to not forkbomb the host
+			$spawn_interval = max(60, DAEMON_SLEEP_INTERVAL);
+
+			_debug("Sleeping for $spawn_interval seconds...");
+			sleep($spawn_interval);
 		}
 	}
 
@@ -192,10 +195,10 @@
 			_debug("warning: unable to create stampfile\n");
 		}
 
-		update_daemon_common(isset($options["pidlock"]) ? 50 : DAEMON_FEED_LIMIT);
+		RSSUtils::update_daemon_common(isset($options["pidlock"]) ? 50 : DAEMON_FEED_LIMIT);
 
 		if (!isset($options["pidlock"]) || $options["task"] == 0)
-			housekeeping_common(true);
+			RSSUtils::housekeeping_common(true);
 
 		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_UPDATE_TASK, "hook_update_task", $op);
 	}
@@ -401,7 +404,9 @@
 
 		$_REQUEST['xdebug'] = 1;
 
-		update_rss_feed($feed);
+		$rc = RSSUtils::update_rss_feed($feed) != false ? 0 : 1;
+
+		exit($rc);
 	}
 
 	if (isset($options["decrypt-feeds"])) {
@@ -423,7 +428,7 @@
 
 			$auth_pass = db_escape_string(decrypt_string($line["auth_pass"]));
 
-			db_query("UPDATE ttrss_feeds SET auth_pass_encrypted = false, auth_pass = '$auth_pass' 
+			db_query("UPDATE ttrss_feeds SET auth_pass_encrypted = false, auth_pass = '$auth_pass'
 				WHERE id = " . $line["id"]);
 
 			++$total;
