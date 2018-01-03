@@ -1,6 +1,7 @@
 <?php
 class Af_Readability extends Plugin {
 
+	/* @var PluginHost $host */
 	private $host;
 
 	function about() {
@@ -14,7 +15,7 @@ class Af_Readability extends Plugin {
 	}
 
 	function save() {
-		$enable_share_anything = checkbox_to_sql_bool($_POST["enable_share_anything"]) == "true";
+		$enable_share_anything = checkbox_to_sql_bool($_POST["enable_share_anything"]);
 
 		$this->host->set($this, "enable_share_anything", $enable_share_anything);
 
@@ -112,7 +113,7 @@ class Af_Readability extends Plugin {
 		$enabled_feeds = $this->host->get($this, "enabled_feeds");
 		if (!is_array($enabled_feeds)) $enabled_feeds = array();
 
-		$enable = checkbox_to_sql_bool($_POST["af_readability_enabled"]) == 'true';
+		$enable = checkbox_to_sql_bool($_POST["af_readability_enabled"]);
 		$key = array_search($feed_id, $enabled_feeds);
 
 		if ($enable) {
@@ -154,6 +155,8 @@ class Af_Readability extends Plugin {
 
 			if (strpos($content_type, "text/html") === FALSE)
 				return false;
+
+			$effective_url = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
 		}
 
 		$tmp = fetch_file_contents($url);
@@ -163,6 +166,9 @@ class Af_Readability extends Plugin {
 
 			if (!$tmpdoc->loadHTML('<?xml encoding="utf-8" ?>\n' . $tmp))
 				return false;
+
+			if (!isset($effective_url))
+				$effective_url = $url;
 
 			if (strtolower($tmpdoc->encoding) != 'utf-8') {
 				$tmpxpath = new DOMXPath($tmpdoc);
@@ -184,13 +190,13 @@ class Af_Readability extends Plugin {
 				foreach ($entries as $entry) {
 					if ($entry->hasAttribute("href")) {
 						$entry->setAttribute("href",
-								rewrite_relative_url($url, $entry->getAttribute("href")));
+								rewrite_relative_url($effective_url, $entry->getAttribute("href")));
 
 					}
 
 					if ($entry->hasAttribute("src")) {
 						$entry->setAttribute("src",
-								rewrite_relative_url($url, $entry->getAttribute("src")));
+								rewrite_relative_url($effective_url, $entry->getAttribute("src")));
 
 					}
 
@@ -235,9 +241,10 @@ class Af_Readability extends Plugin {
 
 		foreach ($enabled_feeds as $feed) {
 
-			$result = db_query("SELECT id FROM ttrss_feeds WHERE id = '$feed' AND owner_uid = " . $_SESSION["uid"]);
+			$sth = $this->pdo->prepare("SELECT id FROM ttrss_feeds WHERE id = ? AND owner_uid = ?");
+			$sth->execute([$feed, $_SESSION['uid']]);
 
-			if (db_num_rows($result) != 0) {
+			if ($row = $sth->fetch()) {
 				array_push($tmp, $feed);
 			}
 		}

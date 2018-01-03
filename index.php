@@ -55,20 +55,20 @@
 <html>
 <head>
 	<title>Tiny Tiny RSS</title>
+    <meta name="viewport" content="initial-scale=1,width=device-width" />
 
 	<script type="text/javascript">
 		var __ttrss_version = "<?php echo VERSION ?>"
 	</script>
 
 	<?php echo stylesheet_tag("lib/dijit/themes/claro/claro.css"); ?>
-	<?php echo stylesheet_tag("css/layout.css"); ?>
 
 	<?php if ($_SESSION["uid"]) {
 		$theme = get_pref( "USER_CSS_THEME", $_SESSION["uid"], false);
 		if ($theme && theme_valid("$theme")) {
 			echo stylesheet_tag(get_theme_path($theme));
 		} else {
-			echo stylesheet_tag("themes/default.php");
+			echo stylesheet_tag("css/default.css");
 		}
 	}
 	?>
@@ -114,8 +114,8 @@
 	<?php
 		require_once 'lib/jshrink/Minifier.php';
 
-		print get_minified_js(array("tt-rss",
-			"functions", "feedlist", "viewfeed", "PluginHost"));
+		print get_minified_js(["tt-rss.js",
+			"functions.js", "feedlist.js", "viewfeed.js", "PluginHost.js"]);
 
 		foreach (PluginHost::getInstance()->get_plugins() as $n => $p) {
 			if (method_exists($p, "get_js")) {
@@ -142,7 +142,7 @@
 	</script>
 </head>
 
-<body id="ttrssMain" class="claro">
+<body class="claro ttrss_main">
 
 <div id="overlay" style="display : block">
 	<div id="overlay_inner">

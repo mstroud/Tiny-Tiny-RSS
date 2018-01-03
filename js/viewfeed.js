@@ -211,7 +211,7 @@ function headlines_callback2(transport, offset, background, infscroll_req) {
 		if (counters)
 			parse_counters(counters);
 		else
-			request_counters(true);
+			request_counters();
 
 	} else {
 		console.error("Invalid object received: " + transport.responseText);
@@ -423,11 +423,9 @@ function toggleMark(id, client_only) {
 
 		if (!row.hasClassName("marked")) {
 			img.src = img.src.replace("mark_unset", "mark_set");
-			img.alt = __("Unstar article");
 			query = query + "&mark=1";
 		} else {
 			img.src = img.src.replace("mark_set", "mark_unset");
-			img.alt = __("Star article");
 			query = query + "&mark=0";
 		}
 	}
@@ -477,11 +475,9 @@ function togglePub(id, client_only, no_effects, note) {
 
 		if (!row.hasClassName("published") || note != undefined) {
 			img.src = img.src.replace("pub_unset", "pub_set");
-			img.alt = __("Unpublish article");
 			query = query + "&pub=1";
 		} else {
 			img.src = img.src.replace("pub_set", "pub_unset");
-			img.alt = __("Publish article");
 			query = query + "&pub=0";
 		}
 	}
@@ -1743,9 +1739,9 @@ function headlinesMenuCommon(menu) {
 	}));
 
 
-	var labels = dijit.byId("feedTree").model.getItemsInCategory(-2);
+	var labels = getInitParam("labels");
 
-	if (labels) {
+	if (labels && labels.length) {
 
 		menu.addChild(new dijit.MenuSeparator());
 
@@ -1753,11 +1749,8 @@ function headlinesMenuCommon(menu) {
 		var labelDelMenu = new dijit.Menu({ownerMenu: menu});
 
 		labels.each(function (label) {
-			var id = label.id[0];
-			var bare_id = id.substr(id.indexOf(":") + 1);
-			var name = label.name[0];
-
-			bare_id = feed_to_label_id(bare_id);
+			var bare_id = label.id;
+			var name = label.caption;
 
 			labelAddMenu.addChild(new dijit.MenuItem({
 				label: name,

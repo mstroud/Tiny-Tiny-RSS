@@ -65,7 +65,7 @@ class Db_Mysqli implements IDb {
 	}
 
 	function last_error() {
-		return mysqli_error();
+		return mysqli_error($this->link);
 	}
 
 	function last_query_error() {
@@ -76,7 +76,7 @@ class Db_Mysqli implements IDb {
 		$this->query("SET time_zone = '+0:0'");
 
 		if (defined('MYSQL_CHARSET') && MYSQL_CHARSET) {
-			$this->query("SET NAMES " . MYSQL_CHARSET);
+			mysqli_set_charset($this->link, MYSQL_CHARSET);
 		}
 
 		return true;

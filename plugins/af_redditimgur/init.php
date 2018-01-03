@@ -1,5 +1,7 @@
 <?php
 class Af_RedditImgur extends Plugin {
+
+	/* @var PluginHost $host */
 	private $host;
 
 	function about() {
@@ -64,8 +66,8 @@ class Af_RedditImgur extends Plugin {
 	}
 
 	function save() {
-		$enable_readability = checkbox_to_sql_bool($_POST["enable_readability"]) == "true";
-		$enable_content_dupcheck = checkbox_to_sql_bool($_POST["enable_content_dupcheck"]) == "true";
+		$enable_readability = checkbox_to_sql_bool($_POST["enable_readability"]);
+		$enable_content_dupcheck = checkbox_to_sql_bool($_POST["enable_content_dupcheck"]);
 
 		$this->host->set($this, "enable_readability", $enable_readability, false);
 		$this->host->set($this, "enable_content_dupcheck", $enable_content_dupcheck);
@@ -79,6 +81,7 @@ class Af_RedditImgur extends Plugin {
 	private function inline_stuff($article, &$doc, $xpath, $debug = false) {
 
 		$entries = $xpath->query('(//a[@href]|//img[@src])');
+		$img_entries = $xpath->query("(//img[@src])");
 
 		$found = false;
 
@@ -144,6 +147,51 @@ class Af_RedditImgur extends Plugin {
 							}
 						}
 					}
+				}
+
+				if (!$found && preg_match("/https?:\/\/v\.redd\.it\/(.*)$/i", $entry->getAttribute("href"), $matches)) {
+
+					_debug("Handling as reddit inline video", $debug);
+
+					$img = $img_entries->item(0);
+
+					if ($img) {
+						$poster_url = $img->getAttribute("src");
+					} else {
+						$poster_url = false;
+					}
+
+					// Get original article URL from v.redd.it redirects
+					$source_article_url = $this->get_location($matches[0]);
+					_debug("Resolved ".$matches[0]." to ".$source_article_url, $debug);
+
+					$source_stream = false;
+
+					if ($source_article_url) {
+						$j = json_decode(fetch_file_contents($source_article_url.".json"), true);
+
+						if ($j) {
+							foreach ($j as $listing) {
+								foreach ($listing["data"]["children"] as $child) {
+									if ($child["data"]["url"] == $matches[0]) {
+										try {
+											$source_stream = $child["data"]["media"]["reddit_video"]["fallback_url"];
+										}
+										catch (Exception $e) {
+										}
+										break 2;
+									}
+								}
+							}
+						}
+					}
+
+					if (!$source_stream) {
+						$source_stream = "https://v.redd.it/" . $matches[1] . "/DASH_600_K";
+					}
+
+					$this->handle_as_video($doc, $entry, $source_stream, $poster_url);
+					$found = 1;
 				}
 
 				if (!$found && preg_match("/https?:\/\/(www\.)?streamable.com\//i", $entry->getAttribute("href"))) {
@@ -333,8 +381,8 @@ class Af_RedditImgur extends Plugin {
 			if ($this->host->get($this, "enable_content_dupcheck")) {
 
 				if ($content_link) {
-					$content_href = db_escape_string($content_link->getAttribute("href"));
-					$entry_guid = db_escape_string($article["guid_hashed"]);
+					$content_href = $content_link->getAttribute("href");
+					$entry_guid = $article["guid_hashed"];
 					$owner_uid = $article["owner_uid"];
 
 					if (DB_TYPE == "pgsql") {
@@ -343,16 +391,18 @@ class Af_RedditImgur extends Plugin {
 						$interval_qpart = "date_entered < DATE_SUB(NOW(), INTERVAL 1 DAY)";
 					}
 
-					$result = db_query("SELECT COUNT(id) AS cid
+					$sth = $this->pdo->prepare("SELECT COUNT(id) AS cid
 						FROM ttrss_entries, ttrss_user_entries WHERE
 							ref_id = id AND
 							$interval_qpart AND
-							guid != '$entry_guid' AND
-							owner_uid = '$owner_uid' AND
-							content LIKE '%href=\"$content_href\">[link]%'");
+							guid != ? AND
+							owner_uid = ? AND
+							content LIKE ?");
 
-					if ($result) {
-						$num_found = db_fetch_result($result, 0, "cid");
+					$sth->execute([$entry_guid, $owner_uid, "%href=\"$content_href\">[link]%"]);
+
+					if ($row = $sth->fetch()) {
+						$num_found = $row['cid'];
 
 						if ($num_found > 0) $article["force_catchup"] = true;
 					}
@@ -364,7 +414,7 @@ class Af_RedditImgur extends Plugin {
 			$node = $doc->getElementsByTagName('body')->item(0);
 
 			if ($node && $found) {
-				$article["content"] = $doc->saveXML($node);
+				$article["content"] = $doc->saveHTML($node);
 			} else if ($content_link) {
 				$article = $this->readability($article, $content_link->getAttribute("href"), $doc, $xpath);
 			}
@@ -433,8 +483,8 @@ class Af_RedditImgur extends Plugin {
 		}
 	}
 
-	private function get_content_type($url, $useragent = SELF_USER_AGENT) {
-		$content_type = false;
+	private function get_header($url, $useragent = SELF_USER_AGENT, $header) {
+		$ret = false;
 
 		if (function_exists("curl_init") && !defined("NO_CURL")) {
 			$ch = curl_init($url);
@@ -446,10 +496,18 @@ class Af_RedditImgur extends Plugin {
 			curl_setopt($ch, CURLOPT_USERAGENT, $useragent);
 
 			@curl_exec($ch);
-			$content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+			$ret = curl_getinfo($ch, $header);
 		}
 
-		return $content_type;
+		return $ret;
+	}
+
+	private function get_content_type($url, $useragent = SELF_USER_AGENT) {
+		return $this->get_header($url, $useragent, CURLINFO_CONTENT_TYPE);
+	}
+
+	private function get_location($url, $useragent = SELF_USER_AGENT) {
+		return $this->get_header($url, $useragent, CURLINFO_EFFECTIVE_URL);
 	}
 
 	/**

@@ -15,7 +15,8 @@
 	 * to get out. */
 
 	function make_self_url_path() {
-		$url_path = ($_SERVER['HTTPS'] != "on" ? 'http://' :  'https://') . $_SERVER["HTTP_HOST"] . parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
+		$proto = is_server_https() ? 'https' : 'http';
+		$url_path = $proto . '://' . $_SERVER["HTTP_HOST"] . parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 
 		return $url_path;
 	}
@@ -89,19 +90,29 @@
 				}
 			}
 
-			if (SINGLE_USER_MODE) {
-				$result = db_query("SELECT id FROM ttrss_users WHERE id = 1");
+			if (SINGLE_USER_MODE && class_exists("PDO")) {
+			    $pdo = DB::pdo();
 
-				if (db_num_rows($result) != 1) {
+				$res = $pdo->query("SELECT id FROM ttrss_users WHERE id = 1");
+
+				if (!$res->fetch()) {
 					array_push($errors, "SINGLE_USER_MODE is enabled in config.php but default admin account is not found.");
 				}
 			}
 
-			if (SELF_URL_PATH == "http://example.org/tt-rss/") {
-				$urlpath = preg_replace("/\w+\.php$/", "", make_self_url_path());
+			$ref_self_url_path = make_self_url_path();
+			$ref_self_url_path = preg_replace("/\w+\.php$/", "", $ref_self_url_path);
 
+			if (SELF_URL_PATH == "http://example.org/tt-rss/") {
 				array_push($errors,
-						"Please set SELF_URL_PATH to the correct value for your server (possible value: <b>$urlpath</b>)");
+						"Please set SELF_URL_PATH to the correct value for your server (possible value: <b>$ref_self_url_path</b>)");
+			}
+
+			if (isset($_SERVER["HTTP_HOST"]) &&
+				(!defined('_SKIP_SELF_URL_PATH_CHECKS') || !_SKIP_SELF_URL_PATH_CHECKS) &&
+				SELF_URL_PATH != $ref_self_url_path && SELF_URL_PATH != mb_substr($ref_self_url_path, 0, mb_strlen($ref_self_url_path)-1)) {
+				array_push($errors,
+					"Please set SELF_URL_PATH to the correct value detected for your server: <b>$ref_self_url_path</b>");
 			}
 
 			if (!is_writable(ICONS_DIR)) {
@@ -128,6 +139,10 @@
 				array_push($errors, "PHP support for PostgreSQL is required for configured DB_TYPE in config.php");
 			}
 
+			if (!class_exists("PDO")) {
+				array_push($errors, "PHP support for PDO is required but was not found.");
+			}
+
 			if (!function_exists("mb_strlen")) {
 				array_push($errors, "PHP support for mbstring functions is required but was not found.");
 			}
@@ -140,14 +155,35 @@
 				array_push($errors, "PHP safe mode setting is obsolete and not supported by tt-rss.");
 			}
 
+			if (!function_exists("mime_content_type")) {
+				array_push($errors, "PHP function mime_content_type() is missing, try enabling fileinfo module.");
+			}
+
 			if (!class_exists("DOMDocument")) {
 				array_push($errors, "PHP support for DOMDocument is required, but was not found.");
 			}
 
-			$self_scheme = parse_url(SELF_URL_PATH, PHP_URL_SCHEME);
+			if (DB_TYPE == "mysql") {
+				$bad_tables = check_mysql_tables();
 
-			if ($_SERVER['HTTPS'] && $self_scheme == 'http') {
-				array_push($errors, "You are accessing tt-rss over SSL but SELF_URL_PATH in config.php refers to a http:// URL.");
+				if (count($bad_tables) > 0) {
+					$bad_tables_fmt = [];
+
+					foreach ($bad_tables as $bt) {
+						array_push($bad_tables_fmt, sprintf("%s (%s)", $bt['table_name'], $bt['engine']));
+					}
+
+					$msg = "<p>The following tables use an unsupported MySQL engine: <b>" .
+						implode(", ", $bad_tables_fmt) . "</b>.</p>";
+
+					$msg .= "<p>The only supported engine on MySQL is InnoDB. MyISAM lacks functionality to run
+						tt-rss.
+						Please backup your data (via OPML) and re-import the schema before continuing.</p>
+						<p><b>WARNING: importing the schema would mean LOSS OF ALL YOUR DATA.</b></p>";
+
+
+					array_push($errors, $msg);
+				}
 			}
 		}
 
@@ -156,9 +192,9 @@
 			<head>
 			<title>Startup failed</title>
 				<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-				<link rel="stylesheet" type="text/css" href="css/utility.css">
+				<link rel="stylesheet" type="text/css" href="css/default.css">
 			</head>
-		<body>
+		<body class='sanity_failed claro ttrss_utility'>
 		<div class="floatingLogo"><img src="images/logo_small.png"></div>
 			<div class="content">
 

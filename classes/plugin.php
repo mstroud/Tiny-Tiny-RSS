@@ -1,18 +1,18 @@
 <?php
-class Plugin {
-	private $dbh;
-	private $host;
-
+abstract class Plugin {
 	const API_VERSION_COMPAT = 1;
 
-	function init($host) {
-		$this->dbh = $host->get_dbh();
-		$this->host = $host;
-	}
+	/** @var PDO */
+	protected $pdo;
 
-	function about() {
-		// version, name, description, author, is_system
-		return array(1.0, "plugin", "No description", "No author", false);
+	/* @var PluginHost $host */
+	abstract function init($host);
+
+	abstract function about();
+	// return array(1.0, "plugin", "No description", "No author", false);
+
+	function __construct() {
+		$this->pdo = Db::pdo();
 	}
 
 	function flags() {
