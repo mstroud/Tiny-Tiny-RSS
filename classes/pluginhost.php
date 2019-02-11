@@ -10,7 +10,6 @@ class PluginHost {
 	private $api_methods = array();
 	private $plugin_actions = array();
 	private $owner_uid;
-	private $debug;
 	private $last_registered;
 	private static $instance;
 
@@ -53,10 +52,12 @@ class PluginHost {
 	const HOOK_MAIN_TOOLBAR_BUTTON = 32;
 	const HOOK_ENCLOSURE_ENTRY = 33;
 	const HOOK_FORMAT_ARTICLE = 34;
-	const HOOK_FORMAT_ARTICLE_CDM = 35;
+	const HOOK_FORMAT_ARTICLE_CDM = 35; /* RIP */
 	const HOOK_FEED_BASIC_INFO = 36;
 	const HOOK_SEND_LOCAL_FILE = 37;
 	const HOOK_UNSUBSCRIBE_FEED = 38;
+	const HOOK_SEND_MAIL = 39;
+	const HOOK_FILTER_TRIGGERED = 40;
 
 	const KIND_ALL = 1;
 	const KIND_SYSTEM = 2;
@@ -96,7 +97,7 @@ class PluginHost {
 	function get_pdo() {
 		return $this->pdo;
 	}
-	
+
 	function get_plugin_names() {
 		$names = array();
 
@@ -170,15 +171,37 @@ class PluginHost {
 
 			// try system plugin directory first
 			$file = __DIR__ . "/../plugins/$class_file/init.php";
+			$vendor_dir = __DIR__ . "/../plugins/$class_file/vendor";
 
 			if (!file_exists($file)) {
 				$file = __DIR__ . "/../plugins.local/$class_file/init.php";
+				$vendor_dir = __DIR__ . "/../plugins.local/$class_file/vendor";
 			}
 
 			if (!isset($this->plugins[$class])) {
 				if (file_exists($file)) require_once $file;
 
 				if (class_exists($class) && is_subclass_of($class, "Plugin")) {
+
+					// register plugin autoloader if necessary, for namespaced classes ONLY
+					// layout corresponds to tt-rss main /vendor/author/Package/Class.php
+
+					if (file_exists($vendor_dir)) {
+						spl_autoload_register(function($class) use ($vendor_dir) {
+
+							if (strpos($class, '\\') !== FALSE) {
+								list ($namespace, $class_name) = explode('\\', $class, 2);
+
+								if ($namespace && $class_name) {
+									$class_file = "$vendor_dir/$namespace/" . str_replace('\\', '/', $class_name) . ".php";
+
+									if (file_exists($class_file))
+										require_once $class_file;
+								}
+							}
+						});
+					}
+
 					$plugin = new $class($this);
 
 					$plugin_api = $plugin->api_version();
@@ -375,14 +398,6 @@ class PluginHost {
 				AND owner_uid = ?");
 			$sth->execute([$idx, $this->owner_uid]);
 		}
-	}
-
-	function set_debug($debug) {
-		$this->debug = $debug;
-	}
-
-	function get_debug() {
-		return $this->debug;
 	}
 
 	// Plugin feed functions are *EXPERIMENTAL*!

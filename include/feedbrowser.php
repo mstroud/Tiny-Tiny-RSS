@@ -24,8 +24,8 @@
 							(SELECT COUNT(id) = 0 FROM ttrss_feeds AS tf
 								WHERE tf.feed_url = qqq.feed_url
 									AND owner_uid = ?) $search_qpart
-						GROUP BY feed_url, site_url, title ORDER BY subscribers DESC LIMIT ?");
-			$sth->execute([$_SESSION['uid'], $limit]);
+						GROUP BY feed_url, site_url, title ORDER BY subscribers DESC LIMIT " . (int)$limit);
+			$sth->execute([$_SESSION['uid']]);
 
 		} else if ($mode == 2) {
 			$sth = $pdo->prepare("SELECT *,
@@ -38,9 +38,9 @@
 							WHERE ttrss_feeds.feed_url = ttrss_archived_feeds.feed_url AND
 								owner_uid = :uid) = 0	AND
 						owner_uid = :uid $search_qpart
-						ORDER BY id DESC LIMIT :limit");
+						ORDER BY id DESC LIMIT " . (int)$limit);
 
-			$sth->execute([":uid" => $_SESSION['uid'], ":limit" => $limit]);
+			$sth->execute([":uid" => $_SESSION['uid']]);
 		}
 
 		$feedctr = 0;
@@ -53,11 +53,9 @@
 				$site_url = htmlspecialchars($line["site_url"]);
 				$subscribers = $line["subscribers"];
 
-				$check_box = "<input onclick='toggleSelectListRow2(this)'
+				$check_box = "<input onclick='Lists.onRowChecked(this)'
 							dojoType=\"dijit.form.CheckBox\"
 							type=\"checkbox\" \">";
-
-				$class = ($feedctr % 2) ? "even" : "odd";
 
 				$site_url = "<a target=\"_blank\" rel=\"noopener noreferrer\"
 							href=\"$site_url\">
@@ -65,8 +63,7 @@
 				htmlspecialchars($line["title"])."</span></a>";
 
 				$feed_url = "<a target=\"_blank\" rel=\"noopener noreferrer\" class=\"fb_feedUrl\"
-							href=\"$feed_url\"><img src='images/pub_set.png'
-							style='vertical-align : middle'></a>";
+							href=\"$feed_url\"><i class='icon-syndicate material-icons'>rss_feed</i></a>";
 
 				$rv .= "<li>$check_box $feed_url $site_url".
 							"&nbsp;<span class='subscribers'>($subscribers)</span></li>";
@@ -75,10 +72,8 @@
 				$feed_url = htmlspecialchars($line["feed_url"]);
 				$site_url = htmlspecialchars($line["site_url"]);
 
-				$check_box = "<input onclick='toggleSelectListRow2(this)' dojoType=\"dijit.form.CheckBox\"
+				$check_box = "<input onclick='Lists.onRowChecked(this)' dojoType=\"dijit.form.CheckBox\"
 							type=\"checkbox\">";
-
-				$class = ($feedctr % 2) ? "even" : "odd";
 
 				if ($line['articles_archived'] > 0) {
 					$archived = sprintf(_ngettext("%d archived article", "%d archived articles", (int) $line['articles_archived']), $line['articles_archived']);
@@ -93,8 +88,7 @@
 				htmlspecialchars($line["title"])."</span></a>";
 
 				$feed_url = "<a target=\"_blank\" rel=\"noopener noreferrer\" class=\"fb_feedUrl\"
-							href=\"$feed_url\"><img src='images/pub_set.png'
-							style='vertical-align : middle'></a>";
+							href=\"$feed_url\"><i class='icon-syndicate material-icons'>rss_feed</i></a>";
 
 
 				$rv .= "<li id=\"FBROW-".$line["id"]."\">".

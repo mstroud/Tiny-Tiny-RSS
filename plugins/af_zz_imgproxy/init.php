@@ -61,7 +61,7 @@ class Af_Zz_ImgProxy extends Plugin {
 			send_local_file($local_filename);
 
 		} else {
-			$data = fetch_file_contents(array("url" => $url));
+			$data = fetch_file_contents(["url" => $url, "max_size" => MAX_CACHE_FILE_SIZE]);
 
 			if ($data) {
 
@@ -205,7 +205,8 @@ class Af_Zz_ImgProxy extends Plugin {
 	function hook_prefs_tab($args) {
 		if ($args != "prefFeeds") return;
 
-		print "<div dojoType=\"dijit.layout.AccordionPane\" title=\"".__('Image proxy settings (af_zz_imgproxy)')."\">";
+		print "<div dojoType=\"dijit.layout.AccordionPane\" 
+			title=\"<i class='material-icons'>extension</i> ".__('Image proxy settings (af_zz_imgproxy)')."\">";
 
 		print "<form dojoType=\"dijit.form.Form\">";
 
@@ -216,7 +217,7 @@ class Af_Zz_ImgProxy extends Plugin {
 				new Ajax.Request('backend.php', {
 					parameters: dojo.objectToQuery(this.getValues()),
 					onComplete: function(transport) {
-						notify_info(transport.responseText);
+						Notify.info(transport.responseText);
 					}
 				});
 				//this.reset();

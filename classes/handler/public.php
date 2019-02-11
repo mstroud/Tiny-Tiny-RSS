@@ -33,6 +33,7 @@ class Handler_Public extends Handler {
 			$date_sort_field = "updated DESC";
 			break;
 		}
+
 		$params = array(
 			"owner_uid" => $owner_uid,
 			"feed" => $feed,
@@ -47,7 +48,26 @@ class Handler_Public extends Handler {
 			"start_ts" => $start_ts
 		);
 
-		$qfh_ret = Feeds::queryFeedHeadlines($params);
+		if (!$is_cat && is_numeric($feed) && $feed < PLUGIN_FEED_BASE_INDEX && $feed > LABEL_BASE_INDEX) {
+
+			$user_plugins = get_pref("_ENABLED_PLUGINS", $owner_uid);
+
+			$tmppluginhost = new PluginHost();
+			$tmppluginhost->load(PLUGINS, PluginHost::KIND_ALL);
+			$tmppluginhost->load($user_plugins, PluginHost::KIND_USER, $owner_uid);
+			$tmppluginhost->load_data();
+
+			$handler = $tmppluginhost->get_feed_handler(
+				PluginHost::feed_to_pfeed_id($feed));
+
+			if ($handler) {
+				$qfh_ret = $handler->get_headlines(PluginHost::feed_to_pfeed_id($feed),
+					$options);
+			}
+
+		} else {
+			$qfh_ret = Feeds::queryFeedHeadlines($params);
+		}
 
 		$result = $qfh_ret[0];
 		$feed_title = htmlspecialchars($qfh_ret[1]);
@@ -119,17 +139,26 @@ class Handler_Public extends Handler {
 
 				$enclosures = Article::get_article_enclosures($line["id"]);
 
-				foreach ($enclosures as $e) {
-					$type = htmlspecialchars($e['content_type']);
-					$url = htmlspecialchars($e['content_url']);
-					$length = $e['duration'] ? $e['duration'] : 1;
+				if (count($enclosures) > 0) {
+					foreach ($enclosures as $e) {
+						$type = htmlspecialchars($e['content_type']);
+						$url = htmlspecialchars($e['content_url']);
+						$length = $e['duration'] ? $e['duration'] : 1;
 
-					$tpl->setVariable('ARTICLE_ENCLOSURE_URL', $url, true);
-					$tpl->setVariable('ARTICLE_ENCLOSURE_TYPE', $type, true);
-					$tpl->setVariable('ARTICLE_ENCLOSURE_LENGTH', $length, true);
+						$tpl->setVariable('ARTICLE_ENCLOSURE_URL', $url, true);
+						$tpl->setVariable('ARTICLE_ENCLOSURE_TYPE', $type, true);
+						$tpl->setVariable('ARTICLE_ENCLOSURE_LENGTH', $length, true);
 
-					$tpl->addBlock('enclosure');
+						$tpl->addBlock('enclosure');
+					}
+				} else {
+					$tpl->setVariable('ARTICLE_ENCLOSURE_URL', null, true);
+					$tpl->setVariable('ARTICLE_ENCLOSURE_TYPE', null, true);
+					$tpl->setVariable('ARTICLE_ENCLOSURE_LENGTH', null, true);
 				}
+
+				$tpl->setVariable('ARTICLE_OG_IMAGE',
+                        $this->get_article_image($enclosures, $line['content'], $feed_site_url), true);
 
 				$tpl->addBlock('entry');
 			}
@@ -242,23 +271,24 @@ class Handler_Public extends Handler {
 
 	function getProfiles() {
 		$login = clean($_REQUEST["login"]);
+		$rv = [];
 
-		$sth = $this->pdo->prepare("SELECT ttrss_settings_profiles.* FROM ttrss_settings_profiles,ttrss_users
+		if ($login) {
+			$sth = $this->pdo->prepare("SELECT ttrss_settings_profiles.* FROM ttrss_settings_profiles,ttrss_users
 			WHERE ttrss_users.id = ttrss_settings_profiles.owner_uid AND login = ? ORDER BY title");
-		$sth->execute([$login]);
+			$sth->execute([$login]);
 
-		print "<select dojoType='dijit.form.Select' style='width : 220px; margin : 0px' name='profile'>";
+			$rv = [ [ "value" => 0, "label" => __("Default profile") ] ];
 
-		print "<option value='0'>" . __("Default profile") . "</option>";
+			while ($line = $sth->fetch()) {
+				$id = $line["id"];
+				$title = $line["title"];
 
-		while ($line = $sth->fetch()) {
-			$id = $line["id"];
-			$title = $line["title"];
+				array_push($rv, [ "label" => $title, "value" => $id ]);
+			}
+	    }
 
-			print "<option value='$id'>$title</option>";
-		}
-
-		print "</select>";
+		print json_encode($rv);
 	}
 
 	function logout() {
@@ -279,13 +309,212 @@ class Handler_Public extends Handler {
 			$id = $row["ref_id"];
 			$owner_uid = $row["owner_uid"];
 
-			$article = Article::format_article($id, false, true, $owner_uid);
-
-			print_r($article['content']);
+			print $this->format_article($id, $owner_uid);
 
 		} else {
+			header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
 			print "Article not found.";
 		}
+
+	}
+
+	private function get_article_image($enclosures, $content, $site_url) {
+	    $og_image = false;
+
+		foreach ($enclosures as $enc) {
+			if (strpos($enc["content_type"], "image/") !== FALSE) {
+				return rewrite_relative_url($site_url, $enc["content_url"]);
+			}
+		}
+
+		if (!$og_image) {
+			$tmpdoc = new DOMDocument();
+
+			if (@$tmpdoc->loadHTML(mb_substr($content, 0, 131070))) {
+				$tmpxpath = new DOMXPath($tmpdoc);
+				$imgs = $tmpxpath->query("//img");
+
+				foreach ($imgs as $img) {
+					$src = $img->getAttribute("src");
+
+					if (mb_strpos($src, "data:") !== 0)
+						return rewrite_relative_url($site_url, $src);
+				}
+			}
+		}
+
+		return false;
+    }
+
+	private function format_article($id, $owner_uid) {
+
+		$pdo = Db::pdo();
+
+		$sth = $pdo->prepare("SELECT id,title,link,content,feed_id,comments,int_id,lang,
+			".SUBSTRING_FOR_DATE."(updated,1,16) as updated,
+			(SELECT site_url FROM ttrss_feeds WHERE id = feed_id) as site_url,
+			(SELECT title FROM ttrss_feeds WHERE id = feed_id) as feed_title,
+			(SELECT hide_images FROM ttrss_feeds WHERE id = feed_id) as hide_images,
+			(SELECT always_display_enclosures FROM ttrss_feeds WHERE id = feed_id) as always_display_enclosures,
+			num_comments,
+			tag_cache,
+			author,
+			guid,
+			orig_feed_id,
+			note
+			FROM ttrss_entries,ttrss_user_entries
+			WHERE	id = ? AND ref_id = id AND owner_uid = ?");
+		$sth->execute([$id, $owner_uid]);
+
+		$rv = '';
+
+		if ($line = $sth->fetch()) {
+
+			$line["tags"] = Article::get_article_tags($id, $owner_uid, $line["tag_cache"]);
+			unset($line["tag_cache"]);
+
+			$line["content"] = sanitize($line["content"],
+				$line['hide_images'],
+				$owner_uid, $line["site_url"], false, $line["id"]);
+
+			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_RENDER_ARTICLE) as $p) {
+				$line = $p->hook_render_article($line);
+			}
+
+			$line['content'] = rewrite_cached_urls($line['content']);
+
+			$num_comments = (int) $line["num_comments"];
+			$entry_comments = "";
+
+			if ($num_comments > 0) {
+				if ($line["comments"]) {
+					$comments_url = htmlspecialchars($line["comments"]);
+				} else {
+					$comments_url = htmlspecialchars($line["link"]);
+				}
+				$entry_comments = "<a class=\"comments\"
+					target='_blank' rel=\"noopener noreferrer\" href=\"$comments_url\">$num_comments ".
+					_ngettext("comment", "comments", $num_comments)."</a>";
+
+			} else {
+				if ($line["comments"] && $line["link"] != $line["comments"]) {
+					$entry_comments = "<a class=\"comments\" target='_blank' rel=\"noopener noreferrer\" href=\"".
+						htmlspecialchars($line["comments"])."\">".__("comments")."</a>";
+				}
+			}
+
+			$enclosures = Article::get_article_enclosures($line["id"]);
+
+            header("Content-Type: text/html");
+
+            $rv .= "<!DOCTYPE html>
+                    <html><head>
+                    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/>
+                    <title>".$line["title"]."</title>".
+                    stylesheet_tag("css/default.css")."
+                    <link rel=\"shortcut icon\" type=\"image/png\" href=\"images/favicon.png\">
+                    <link rel=\"icon\" type=\"image/png\" sizes=\"72x72\" href=\"images/favicon-72px.png\">";
+
+            $rv .= "<meta property=\"og:title\" content=\"".htmlspecialchars($line["title"])."\"/>\n";
+            $rv .= "<meta property=\"og:site_name\" content=\"".htmlspecialchars($line["feed_title"])."\"/>\n";
+            $rv .= "<meta property=\"og:description\" content=\"".
+                htmlspecialchars(truncate_string(strip_tags($line["content"]), 500, "..."))."\"/>\n";
+
+            $rv .= "</head>";
+
+            $og_image = $this->get_article_image($enclosures, $line['content'], $line["site_url"]);
+
+            if ($og_image) {
+                $rv .= "<meta property=\"og:image\" content=\"" . htmlspecialchars($og_image) . "\"/>";
+            }
+
+            $rv .= "<body class='flat ttrss_utility ttrss_zoom'>";
+			$rv .= "<div class='post post-$id'>";
+
+			/* header */
+
+			$rv .= "<div class='header'>";
+			$rv .= "<div class='row'>"; # row
+
+			//$entry_author = $line["author"] ? " - " . $line["author"] : "";
+			$parsed_updated = make_local_datetime($line["updated"], true,
+				$owner_uid, true);
+
+			if ($line["link"]) {
+				$rv .= "<div class='title'><a target='_blank' rel='noopener noreferrer'
+					title=\"".htmlspecialchars($line['title'])."\"
+					href=\"" .htmlspecialchars($line["link"]) . "\">" .	$line["title"] . "</a></div>";
+			} else {
+				$rv .= "<div class='title'>" . $line["title"] . "</div>";
+			}
+
+            $rv .= "<div class='date'>$parsed_updated<br/></div>";
+
+			$rv .= "</div>"; # row
+
+			$rv .= "<div class='row'>"; # row
+
+			/* left buttons */
+
+			$rv .= "<div class='buttons left'>";
+			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_ARTICLE_LEFT_BUTTON) as $p) {
+				$rv .= $p->hook_article_left_button($line);
+			}
+			$rv .= "</div>";
+
+			/* comments */
+
+			$rv .= "<div class='comments'>$entry_comments</div>";
+			$rv .= "<div class='author'>".$line['author']."</div>";
+
+			/* tags */
+
+			$tags_str = Article::format_tags_string($line["tags"], $id);
+
+			$rv .= "<i class='material-icons'>label_outline</i><div>";
+
+            $tags_str = strip_tags($tags_str);
+			$rv .= "<span id=\"ATSTR-$id\">$tags_str</span>";
+
+			$rv .= "</div>";
+
+			/* buttons */
+
+			$rv .= "<div class='buttons right'>";
+			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_ARTICLE_BUTTON) as $p) {
+				$rv .= $p->hook_article_button($line);
+			}
+			$rv .= "</div>";
+
+			$rv .= "</div>"; # row
+
+			$rv .= "</div>"; # header
+
+			/* content */
+
+			$lang = $line['lang'] ? $line['lang'] : "en";
+			$rv .= "<div class=\"content\" lang=\"$lang\">";
+
+			/* content body */
+
+			$rv .= $line["content"];
+
+            $rv .= Article::format_article_enclosures($id,
+                $line["always_display_enclosures"],
+                $line["content"],
+                $line["hide_images"]);
+
+			$rv .= "</div>"; # content
+
+			$rv .= "</div>"; # post
+
+		}
+
+		foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_FORMAT_ARTICLE) as $p) {
+			$rv = $p->hook_format_article($rv, $line, true);
+		}
+
+		return $rv;
 
 	}
 
@@ -383,7 +612,7 @@ class Handler_Public extends Handler {
 
 				?>
 
-				<table height='100%' width='100%'><tr><td colspan='2'>
+				<table height='100%' width='100%' class="panel"><tr><td colspan='2'>
 				<h1><?php echo __("Share with Tiny Tiny RSS") ?></h1>
 				</td></tr>
 
@@ -476,8 +705,6 @@ class Handler_Public extends Handler {
 				session_set_cookie_params(0);
 			}
 
-			@session_start();
-
 			if (authenticate_user($login, $password)) {
 				$_POST["password"] = "";
 
@@ -490,7 +717,7 @@ class Handler_Public extends Handler {
 
 				if (clean($_POST["profile"])) {
 
-					$profile = clean($_POST["profile"]);
+					$profile = (int) clean($_POST["profile"]);
 
 					$sth = $this->pdo->prepare("SELECT id FROM ttrss_settings_profiles
 						WHERE id = ? AND owner_uid = ?");
@@ -498,10 +725,18 @@ class Handler_Public extends Handler {
 
 					if ($sth->fetch()) {
 						$_SESSION["profile"] = $profile;
-					}
+ 					} else {
+					    $_SESSION["profile"] = null;
+                    }
 				}
 			} else {
-				$_SESSION["login_error_msg"] = __("Incorrect username or password");
+
+				// start an empty session to deliver login error message
+				@session_start();
+
+				if (!isset($_SESSION["login_error_msg"]))
+					$_SESSION["login_error_msg"] = __("Incorrect username or password");
+
 				user_error("Failed login attempt for $login from {$_SERVER['REMOTE_ADDR']}", E_USER_WARNING);
 			}
 
@@ -613,7 +848,7 @@ class Handler_Public extends Handler {
 				print "<form method=\"GET\" style='display: inline'
 					action=\"$tp_uri\">
 					<input type=\"hidden\" name=\"tab\" value=\"feedConfig\">
-					<input type=\"hidden\" name=\"method\" value=\"editFeed\">
+					<input type=\"hidden\" name=\"method\" value=\"editfeed\">
 					<input type=\"hidden\" name=\"methodparam\" value=\"$feed_id\">
 					<input type=\"submit\" value=\"".__("Edit subscription options")."\">
 					</form>";
@@ -753,7 +988,6 @@ class Handler_Public extends Handler {
 						$resetpass_link = get_self_url_prefix() . "/public.php?op=forgotpass&hash=" . $resetpass_token .
 							"&login=" . urlencode($login);
 
-						require_once 'classes/ttrssmailer.php';
 						require_once "lib/MiniTemplator.class.php";
 
 						$tpl = new MiniTemplator;
@@ -769,13 +1003,14 @@ class Handler_Public extends Handler {
 
 						$tpl->generateOutputToString($message);
 
-						$mail = new ttrssMailer();
+						$mailer = new Mailer();
 
-						$rc = $mail->quickMail($email, $login,
-							__("[tt-rss] Password reset request"),
-							$message, false);
+						$rc = $mailer->mail(["to_name" => $login, 
+							"to_address" => $email,
+							"subject" => __("[tt-rss] Password reset request"),
+							"message" => $message]);
 
-						if (!$rc) print_error($mail->ErrorInfo);
+						if (!$rc) print_error($mailer->error());
 
 						$resetpass_token_full = time() . ":" . $resetpass_token;
 
@@ -934,17 +1169,17 @@ class Handler_Public extends Handler {
 	}
 
 	function cached_url() {
-		@$hash = basename($_GET['hash']);
+		@$req_filename = basename($_GET['hash']);
 
 		// we don't need an extension to find the file, hash is a complete URL
-		$hash = preg_replace("/\.[^\.]*$/", "", $hash);
+		$hash = preg_replace("/\.[^\.]*$/", "", $req_filename);
 
 		if ($hash) {
 
 			$filename = CACHE_DIR . '/images/' . $hash;
 
 			if (file_exists($filename)) {
-				header("Content-Disposition: inline; filename=\"$hash\"");
+				header("Content-Disposition: inline; filename=\"$req_filename\"");
 
 				send_local_file($filename);
 
