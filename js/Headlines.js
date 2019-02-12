@@ -164,13 +164,13 @@ define(["dojo/_base/declare"], function (declare) {
 				if (Article.getActive() != id) {
 					Article.setActive(id);
 
-					if (!App.getInitParam("cdm_expanded"))
-						Article.cdmScrollToId(id);
+				//if (!App.getInitParam("cdm_expanded"))
+				//	Article.cdmScrollToId(id);
+          Article.cdmScrollToId(id, 1); // Greader-style click scrolling
+          
 				} else if (in_body) {
 					Headlines.toggleUnread(id, 0);
 				}
-
-				Article.cdmScrollToId(id,1); // Greader-style click scrolling
 
 				return in_body;
 
