@@ -54,7 +54,11 @@ require(["dojo/_base/kernel",
 	"fox/Headlines",
 	"fox/Article",
 	"fox/FeedStoreModel",
-	"fox/FeedTree"], function (dojo, declare, ready, parser, AppBase) {
+	"fox/FeedTree",
+	"fox/Toolbar",
+	"fox/form/Select",
+	"fox/form/ComboButton",
+	"fox/form/DropDownButton"], function (dojo, declare, ready, parser, AppBase) {
 
 	ready(function () {
 		try {
@@ -144,13 +148,6 @@ require(["dojo/_base/kernel",
 					dijit.getEnclosingWidget(toolbar.order_by).attr('value',
 						App.getInitParam("default_view_order_by"));
 
-					const hash_feed_id = hash_get('f');
-					const hash_feed_is_cat = hash_get('c') == "1";
-
-					if (hash_feed_id != undefined) {
-						Feeds.setActive(hash_feed_id, hash_feed_is_cat);
-					}
-
 					App.setLoadingProgress(50);
 
 					this._widescreen_mode = App.getInitParam("widescreen");
@@ -203,8 +200,12 @@ require(["dojo/_base/kernel",
 				isCombinedMode: function() {
 					return App.getInitParam("combined_display_mode");
 				},
-				hotkeyHandler(event) {
+				hotkeyHandler: function(event) {
 					if (event.target.nodeName == "INPUT" || event.target.nodeName == "TEXTAREA") return;
+
+					// Arrow buttons and escape are not reported via keypress, handle them via keydown.
+					// escape = 27, left = 37, up = 38, right = 39, down = 40
+					if (event.type == "keydown" && event.which != 27 && (event.which < 37 || event.which > 40)) return;
 
 					const action_name = App.keyeventToAction(event);
 
@@ -411,6 +412,9 @@ require(["dojo/_base/kernel",
 						if (Feeds.activeIsCat()) {
 							dijit.byId("feedTree").collapseCat(Feeds.getActive());
 						}
+					};
+					this.hotkey_actions["goto_read"] = function () {
+						Feeds.open({feed: -6});
 					};
 					this.hotkey_actions["goto_all"] = function () {
 						Feeds.open({feed: -4});

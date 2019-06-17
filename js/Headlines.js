@@ -153,37 +153,59 @@ define(["dojo/_base/declare"], function (declare) {
 		click: function (event, id, in_body) {
 			in_body = in_body || false;
 
-			if (App.isCombinedMode()) {
+			if (event.shiftKey && Article.getActive()) {
+				Headlines.select('none');
 
-				if (!in_body && (event.ctrlKey || id == Article.getActive() || App.getInitParam("cdm_expanded"))) {
-					Article.openInNewWindow(id);
-					Headlines.toggleUnread(id, 0);
-					return false;
-				}
+				const ids = Headlines.getRange(Article.getActive(), id);
 
-				if (Article.getActive() != id) {
-					Article.setActive(id);
+				console.log(Article.getActive(), id, ids);
 
-				//if (!App.getInitParam("cdm_expanded"))
-				//	Article.cdmScrollToId(id);
-          Article.cdmScrollToId(id, 1); // Greader-style click scrolling
-          
-				} else if (in_body) {
-					Headlines.toggleUnread(id, 0);
-				}
+				for (let i = 0; i < ids.length; i++)
+					Headlines.select('all', ids[i]);
 
-				return in_body;
-
+			} else if (event.ctrlKey) {
+				Headlines.select('invert', id);
 			} else {
-				if (event.ctrlKey) {
-					Article.openInNewWindow(id);
-					Headlines.toggleUnread(id, 0);
-				} else {
-					Article.view(id);
-				}
+				if (App.isCombinedMode()) {
 
-				return false;
+					if (event.altKey && !in_body) {
+
+						Article.openInNewWindow(id);
+						Headlines.toggleUnread(id, 0);
+
+					} else if (Article.getActive() != id) {
+
+						Headlines.select('none');
+						Article.setActive(id);
+
+						if (App.getInitParam("cdm_expanded")) {
+							if (!in_body)
+								Article.openInNewWindow(id);
+
+							Headlines.toggleUnread(id, 0);
+						} else {
+						//Article.cdmScrollToId(id);
+						}
+						Article.cdmScrollToId(id, true); // Greader-style click scrolling
+					} else if (in_body) {
+						Headlines.toggleUnread(id, 0);
+					} else { /* !in body */
+						Article.openInNewWindow(id);
+					}
+
+					return in_body;
+				} else {
+					if (event.altKey) {
+						Article.openInNewWindow(id);
+						Headlines.toggleUnread(id, 0);
+					} else {
+						Headlines.select('none');
+						Article.view(id);
+					}
+				}
 			}
+
+			return false;
 		},
 		initScrollHandler: function () {
 			$("headlines-frame").onscroll = (event) => {
@@ -275,20 +297,6 @@ define(["dojo/_base/declare"], function (declare) {
 							row.removeClassName("Unread");
 						} else {
 							break;
-						}
-					}
-
-					if (Feeds.infscroll_disabled) {
-						const row = $$("#headlines-frame div[id*=RROW]").last();
-
-						if (row && $("headlines-frame").scrollTop >
-							(row.offsetTop + row.offsetHeight - 50)) {
-
-							console.log("we seem to be at an end");
-
-							if (App.getInitParam("on_catchup_show_next_feed") == "1") {
-								Feeds.openNextUnread();
-							}
 						}
 					}
 				}
@@ -558,6 +566,9 @@ define(["dojo/_base/declare"], function (declare) {
 
 				if (!append) {
 
+					// TODO: the below needs to be applied again when switching expanded/expandable on the fly
+					// via hotkeys, not just on feed load
+
 					$("headlines-frame").removeClassName("cdm");
 					$("headlines-frame").removeClassName("normal");
 
@@ -565,6 +576,13 @@ define(["dojo/_base/declare"], function (declare) {
 
 					$("headlines-frame").setAttribute("is-vfeed",
 						reply['headlines']['is_vfeed'] ? 1 : 0);
+
+					// for floating title because it's placed outside of headlines-frame
+					$("main").removeClassName("expandable");
+					$("main").removeClassName("expanded");
+
+					if (App.isCombinedMode())
+						$("main").addClassName(App.getInitParam("cdm_expanded") ? " expanded" : " expandable");
 
 					Article.setActive(0);
 
@@ -1002,6 +1020,33 @@ define(["dojo/_base/declare"], function (declare) {
 			} else {
 				row.removeClassName("Selected");
 			}
+		},
+		getRange: function (start, stop) {
+			if (start == stop)
+				return [start];
+
+			const rows = $$("#headlines-frame > div[id*=RROW]");
+			const results = [];
+			let collecting = false;
+
+			for (let i = 0; i < rows.length; i++) {
+				const row = rows[i];
+				const id = row.getAttribute('data-article-id');
+
+				if (id == start || id == stop) {
+					if (!collecting) {
+						collecting = true;
+					} else {
+						results.push(id);
+						break;
+					}
+				}
+
+				if (collecting)
+					results.push(id);
+			}
+
+			return results;
 		},
 		select: function (mode, articleId) {
 			// mode = all,none,unread,invert,marked,published

@@ -58,10 +58,15 @@ class PluginHost {
 	const HOOK_UNSUBSCRIBE_FEED = 38;
 	const HOOK_SEND_MAIL = 39;
 	const HOOK_FILTER_TRIGGERED = 40;
+	const HOOK_GET_FULL_TEXT = 41;
 
 	const KIND_ALL = 1;
 	const KIND_SYSTEM = 2;
 	const KIND_USER = 3;
+
+	static function object_to_domain($plugin) {
+		return strtolower(get_class($plugin));
+	}
 
 	function __construct() {
 		$this->pdo = Db::pdo();
@@ -209,6 +214,11 @@ class PluginHost {
 					if ($plugin_api < PluginHost::API_VERSION) {
 						user_error("Plugin $class is not compatible with current API version (need: " . PluginHost::API_VERSION . ", got: $plugin_api)", E_USER_WARNING);
 						continue;
+					}
+
+					if (file_exists(dirname($file) . "/locale")) {
+						_bindtextdomain($class, dirname($file) . "/locale");
+						_bind_textdomain_codeset($class, "UTF-8");
 					}
 
 					$this->last_registered = $class;

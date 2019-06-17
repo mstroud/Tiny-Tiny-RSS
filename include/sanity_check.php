@@ -14,6 +14,12 @@
 	 * If you come crying when stuff inevitably breaks, you will be mocked and told
 	 * to get out. */
 
+	function make_self_url() {
+		$proto = is_server_https() ? 'https' : 'http';
+
+		return $proto . '://' . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"];
+	}
+
 	function make_self_url_path() {
 		$proto = is_server_https() ? 'https' : 'http';
 		$url_path = $proto . '://' . $_SERVER["HTTP_HOST"] . parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
@@ -48,6 +54,10 @@
 
 			if (version_compare(PHP_VERSION, '5.6.0', '<')) {
 				array_push($errors, "PHP version 5.6.0 or newer required. You're using " . PHP_VERSION . ".");
+			}
+
+			if (!class_exists("UConverter")) {
+				array_push($errors, "PHP UConverter class is missing, it's provided by the Internationalization (intl) module.");
 			}
 
 			if (CONFIG_VERSION != EXPECTED_CONFIG_VERSION) {
@@ -176,6 +186,7 @@
 		}
 
 		if (count($errors) > 0 && $_SERVER['REQUEST_URI']) { ?>
+			<!DOCTYPE html>
 			<html>
 			<head>
 			<title>Startup failed</title>
@@ -183,7 +194,6 @@
 				<link rel="stylesheet" type="text/css" href="css/default.css">
 			</head>
 		<body class='sanity_failed claro ttrss_utility'>
-		<div class="floatingLogo"><img src="images/logo_small.png"></div>
 			<div class="content">
 
 			<h1>Startup failed</h1>

@@ -19,51 +19,9 @@ class RSSUtils {
 		return preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\xEF\xBF\xBD", $str);
 	}
 
-	static function update_feedbrowser_cache() {
-
+	static function cleanup_feed_browser() {
 		$pdo = Db::pdo();
-
-		$sth = $pdo->query("SELECT feed_url, site_url, title, COUNT(id) AS subscribers
-			FROM ttrss_feeds WHERE feed_url NOT IN (SELECT feed_url FROM ttrss_feeds
-				WHERE private IS true OR auth_login != '' OR auth_pass != '' OR feed_url LIKE '%:%@%/%')
-				GROUP BY feed_url, site_url, title ORDER BY subscribers DESC LIMIT 1000");
-
-		$pdo->beginTransaction();
-
 		$pdo->query("DELETE FROM ttrss_feedbrowser_cache");
-
-		$count = 0;
-
-		while ($line = $sth->fetch()) {
-
-			$subscribers = $line["subscribers"];
-			$feed_url = $line["feed_url"];
-			$title = $line["title"];
-			$site_url = $line["site_url"];
-
-			$tmph = $pdo->prepare("SELECT subscribers FROM
-				ttrss_feedbrowser_cache WHERE feed_url = ?");
-			$tmph->execute([$feed_url]);
-
-			if (!$tmph->fetch()) {
-
-				$tmph = $pdo->prepare("INSERT INTO ttrss_feedbrowser_cache
-					(feed_url, site_url, title, subscribers)
-					VALUES
-					(?, ?, ?, ?)");
-
-				$tmph->execute([$feed_url, $site_url, $title, $subscribers]);
-
-				++$count;
-
-			}
-
-		}
-
-		$pdo->commit();
-
-		return $count;
-
 	}
 
 	static function update_daemon_common($limit = DAEMON_FEED_LIMIT) {
@@ -305,7 +263,7 @@ class RSSUtils {
 
 		$pdo = Db::pdo();
 
-		$sth = $pdo->prepare("SELECT title FROM ttrss_feeds WHERE id = ?");
+		$sth = $pdo->prepare("SELECT title, site_url FROM ttrss_feeds WHERE id = ?");
 		$sth->execute([$feed]);
 
 		if (!$row = $sth->fetch()) {
@@ -315,11 +273,12 @@ class RSSUtils {
 		}
 
 		$title = $row["title"];
+		$site_url = $row["site_url"];
 
 		// feed was batch-subscribed or something, we need to get basic info
 		// this is not optimal currently as it fetches stuff separately TODO: optimize
-		if ($title == "[Unknown]") {
-			Debug::log("setting basic feed info for $feed...");
+		if ($title == "[Unknown]" || !$title || !$site_url) {
+			Debug::log("setting basic feed info for $feed [$title, $site_url]...");
 			RSSUtils::set_basic_feed_info($feed);
 		}
 
@@ -349,7 +308,12 @@ class RSSUtils {
 			$fetch_url = $row["feed_url"];
 
 			$feed_language = mb_strtolower($row["feed_language"]);
-			if (!$feed_language) $feed_language = 'english';
+
+			if (!$feed_language)
+				$feed_language = mb_strtolower(get_pref('DEFAULT_SEARCH_LANGUAGE', $owner_uid));
+
+			if (!$feed_language)
+				$feed_language = 'simple';
 
 		} else {
 			return false;
@@ -1206,10 +1170,12 @@ class RSSUtils {
 			$sth->execute([$error_msg, $feed]);
 
 			unset($rss);
+
+			Debug::log("update failed.", Debug::$LOG_VERBOSE);
 			return false;
 		}
 
-		Debug::log("done", Debug::$LOG_VERBOSE);
+		Debug::log("update done.", Debug::$LOG_VERBOSE);
 
 		return true;
 	}
@@ -1241,12 +1207,8 @@ class RSSUtils {
 	static function cache_media($html, $site_url) {
 		libxml_use_internal_errors(true);
 
-		$charset_hack = '<head>
-			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-		</head>';
-
 		$doc = new DOMDocument();
-		$doc->loadHTML($charset_hack . $html);
+		$doc->loadHTML('<?xml encoding="UTF-8">' . $html);
 		$xpath = new DOMXPath($doc);
 
 		$entries = $xpath->query('(//img[@src])|(//video/source[@src])|(//audio/source[@src])');
@@ -1285,6 +1247,20 @@ class RSSUtils {
 		} else {
 			$pdo->query("DELETE FROM ttrss_error_log
 				WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)");
+		}
+	}
+
+	static function expire_feed_archive() {
+		Debug::log("Removing old archived feeds...");
+
+		$pdo = Db::pdo();
+
+		if (DB_TYPE == "pgsql") {
+			$pdo->query("DELETE FROM ttrss_archived_feeds
+				WHERE created < NOW() - INTERVAL '1 month'");
+		} else {
+			$pdo->query("DELETE FROM ttrss_archived_feeds
+				WHERE created < DATE_SUB(NOW(), INTERVAL 1 MONTH)");
 		}
 	}
 
@@ -1526,9 +1502,8 @@ class RSSUtils {
 		RSSUtils::expire_cached_files();
 		RSSUtils::expire_lock_files();
 		RSSUtils::expire_error_log();
-
-		$count = RSSUtils::update_feedbrowser_cache();
-		Debug::log("Feedbrowser updated, $count feeds processed.");
+		RSSUtils::expire_feed_archive();
+		RSSUtils::cleanup_feed_browser();
 
 		Article::purge_orphans();
 		RSSUtils::cleanup_counters_cache();

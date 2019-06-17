@@ -34,8 +34,7 @@
 	header('Content-Type: text/html; charset=utf-8');
 
 ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html>
 <html>
 <head>
 	<title>Tiny Tiny RSS</title>
@@ -146,7 +145,7 @@
 
     <div dojoType="dijit.layout.BorderContainer" region="center" id="content-wrap">
         <div id="toolbar-frame" dojoType="dijit.layout.ContentPane" region="top">
-            <div id="toolbar" dojoType="dijit.Toolbar">
+            <div id="toolbar" dojoType="fox.Toolbar">
 
             <i class="material-icons net-alert" style="display : none"
                 title="<?php echo __("Communication problem with server.") ?>">error_outline</i>
@@ -171,7 +170,7 @@
 
             <select name="view_mode" title="<?php echo __('Show articles') ?>"
                 onchange="App.onViewModeChanged()"
-                dojoType="dijit.form.Select">
+                dojoType="fox.form.Select">
                 <option selected="selected" value="adaptive"><?php echo __('Adaptive') ?></option>
                 <option value="all_articles"><?php echo __('All Articles') ?></option>
                 <option value="marked"><?php echo __('Starred') ?></option>
@@ -181,16 +180,17 @@
                 <!-- <option value="noscores"><?php echo __('Ignore Scoring') ?></option> -->
             </select>
 
-            <select title="<?php echo __('Sort articles') ?>"
+			<select title="<?php echo __('Sort articles') ?>"
                 onchange="App.onViewModeChanged()"
-                dojoType="dijit.form.Select" name="order_by">
-                <option selected="selected" value="default"><?php echo __('Default') ?></option>
+                dojoType="fox.form.Select" name="order_by">
+
+				<option selected="selected" value="default"><?php echo __('Default') ?></option>
                 <option value="feed_dates"><?php echo __('Newest first') ?></option>
                 <option value="date_reverse"><?php echo __('Oldest first') ?></option>
                 <option value="title"><?php echo __('Title') ?></option>
             </select>
 
-            <div dojoType="dijit.form.ComboButton" onclick="Feeds.catchupCurrent()">
+            <div dojoType="fox.form.ComboButton" onclick="Feeds.catchupCurrent()">
                 <span><?php echo __('Mark as read') ?></span>
                 <div dojoType="dijit.DropDownMenu">
                     <div dojoType="dijit.MenuItem" onclick="Feeds.catchupCurrent('1day')">
@@ -215,8 +215,8 @@
                     }
                 ?>
 
-                <div dojoType="dijit.form.DropDownButton">
-                    <span><?php echo __('Actions...') ?></span>
+                <div dojoType="fox.form.DropDownButton" class="action-button" title="<?php echo __('Actions...') ?>">
+					<span><i class="material-icons">menu</i></span>
                     <div dojoType="dijit.Menu" style="display: none">
                         <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcPrefs')"><?php echo __('Preferences...') ?></div>
                         <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcSearch')"><?php echo __('Search...') ?></div>

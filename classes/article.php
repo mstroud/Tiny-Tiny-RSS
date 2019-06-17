@@ -100,15 +100,12 @@ class Article extends Handler_Protected {
 			$pluginhost->load_all(PluginHost::KIND_ALL, $owner_uid);
 			$pluginhost->load_data();
 
-			$af_readability = $pluginhost->get_plugin("Af_Readability");
+			foreach ($pluginhost->get_hooks(PluginHost::HOOK_GET_FULL_TEXT) as $p) {
+				$extracted_content = $p->hook_get_full_text($url);
 
-			if ($af_readability) {
-				$enable_share_anything = $pluginhost->get($af_readability, "enable_share_anything");
-
-				if ($enable_share_anything) {
-					$extracted_content = $af_readability->extract_content($url);
-
-					if ($extracted_content) $content = $extracted_content;
+				if ($extracted_content) {
+					$content = $extracted_content;
+					break;
 				}
 			}
 		}
@@ -151,6 +148,16 @@ class Article extends Handler_Protected {
 					content = ?, content_hash = ? WHERE id = ?");
 				$sth->execute([$content, $content_hash, $ref_id]);
 
+				if (DB_TYPE == "pgsql"){
+					$sth = $pdo->prepare("UPDATE ttrss_entries
+					SET tsvector_combined = to_tsvector( :ts_content)
+					WHERE id = :id");
+					$params = [
+						":ts_content" => mb_substr(strip_tags($content ), 0, 900000),
+						":id" => $ref_id];
+					$sth->execute($params);
+				}
+				
 				$sth = $pdo->prepare("UPDATE ttrss_user_entries SET published = true,
 						last_published = NOW() WHERE
 						int_id = ? AND owner_uid = ?");
@@ -186,7 +193,15 @@ class Article extends Handler_Protected {
 
 			if ($row = $sth->fetch()) {
 				$ref_id = $row["id"];
-
+				if (DB_TYPE == "pgsql"){
+					$sth = $pdo->prepare("UPDATE ttrss_entries
+					SET tsvector_combined = to_tsvector( :ts_content)
+					WHERE id = :id");
+					$params = [
+						":ts_content" => mb_substr(strip_tags($content ), 0, 900000),
+						":id" => $ref_id];
+					$sth->execute($params);
+				}
 				$sth = $pdo->prepare("INSERT INTO ttrss_user_entries
 					(ref_id, uuid, feed_id, orig_feed_id, owner_uid, published, tag_cache, label_cache,
 						last_read, note, unread, last_published)
@@ -211,8 +226,6 @@ class Article extends Handler_Protected {
 
 	function editArticleTags() {
 
-		print __("Tags for this article (separated by commas):")."<br>";
-
 		$param = clean($_REQUEST['param']);
 
 		$tags = Article::get_article_tags($param);
@@ -223,23 +236,22 @@ class Article extends Handler_Protected {
 		print_hidden("op", "article");
 		print_hidden("method", "setArticleTags");
 
-		print "<table width='100%'><tr><td>";
+		print "<header class='horizontal'>" . __("Tags for this article (separated by commas):")."</header>";
 
-		print "<textarea dojoType=\"dijit.form.SimpleTextarea\" rows='4'
-			style='height : 100px; font-size : 12px; width : 98%' id=\"tags_str\"
+		print "<section>";
+		print "<textarea dojoType='dijit.form.SimpleTextarea' rows='4'
+			style='height : 100px; font-size : 12px; width : 98%' id='tags_str'
 			name='tags_str'>$tags_str</textarea>
-		<div class=\"autocomplete\" id=\"tags_choices\"
-				style=\"display:none\"></div>";
+		<div class='autocomplete' id='tags_choices'
+				style='display:none'></div>";
+		print "</section>";
 
-		print "</td></tr></table>";
-
-		print "<div class='dlgButtons'>";
-
-		print "<button dojoType=\"dijit.form.Button\"
-			onclick=\"dijit.byId('editTagsDlg').execute()\">".__('Save')."</button> ";
-		print "<button dojoType=\"dijit.form.Button\"
+		print "<footer>";
+		print "<button dojoType='dijit.form.Button'
+			type='submit' class='alt-primary' onclick=\"dijit.byId('editTagsDlg').execute()\">".__('Save')."</button> ";
+		print "<button dojoType='dijit.form.Button'
 			onclick=\"dijit.byId('editTagsDlg').hide()\">".__('Cancel')."</button>";
-		print "</div>";
+		print "</footer>";
 
 	}
 
@@ -519,7 +531,7 @@ class Article extends Handler_Protected {
 				$rv .= "<br clear='both'/>";
 			}
 
-			$rv .= "<div class=\"attachments\" dojoType=\"dijit.form.DropDownButton\">".
+			$rv .= "<div class=\"attachments\" dojoType=\"fox.form.DropDownButton\">".
 				"<span>" . __('Attachments')."</span>";
 
 			$rv .= "<div dojoType=\"dijit.Menu\" style=\"display: none;\">";
@@ -700,17 +712,17 @@ class Article extends Handler_Protected {
 
 		$ids_qmarks = arr_qmarks($ids);
 
-		if ($cmode == 0) {
+		if ($cmode == 1) {
 			$sth = $pdo->prepare("UPDATE ttrss_user_entries SET
-			unread = false,last_read = NOW()
-				WHERE ref_id IN ($ids_qmarks) AND owner_uid = ?");
-		} else if ($cmode == 1) {
-			$sth = $pdo->prepare("UPDATE ttrss_user_entries SET
-			unread = true
-				WHERE ref_id IN ($ids_qmarks) AND owner_uid = ?");
-		} else {
+				unread = true
+					WHERE ref_id IN ($ids_qmarks) AND owner_uid = ?");
+		} else if ($cmode == 2) {
 			$sth = $pdo->prepare("UPDATE ttrss_user_entries SET
 				unread = NOT unread,last_read = NOW()
+					WHERE ref_id IN ($ids_qmarks) AND owner_uid = ?");
+		} else {
+			$sth = $pdo->prepare("UPDATE ttrss_user_entries SET
+				unread = false,last_read = NOW()
 					WHERE ref_id IN ($ids_qmarks) AND owner_uid = ?");
 		}
 

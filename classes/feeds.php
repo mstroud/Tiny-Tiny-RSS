@@ -6,7 +6,7 @@ class Feeds extends Handler_Protected {
     private $params;
 
     function csrf_ignore($method) {
-		$csrf_ignored = array("index", "feedbrowser", "quickaddfeed", "search");
+		$csrf_ignored = array("index", "quickaddfeed", "search");
 
 		return array_search($method, $csrf_ignored) !== false;
 	}
@@ -54,7 +54,7 @@ class Feeds extends Handler_Protected {
 		$reply .= "<span class=\"right\">";
 		$reply .= "<span id='selected_prompt'></span>";
 		$reply .= "&nbsp;";
-		$reply .= "<select dojoType=\"dijit.form.Select\"
+		$reply .= "<select dojoType=\"fox.form.Select\"
 			onchange=\"Headlines.onActionChanged(this)\">";
 
 		$reply .= "<option value=\"0\" disabled='1'>".__('Select...')."</option>";
@@ -210,6 +210,8 @@ class Feeds extends Handler_Protected {
 		$highlight_words = $qfh_ret[5];
 		$reply['first_id'] = $qfh_ret[6];
 		$reply['is_vfeed'] = $qfh_ret[7];
+		$query_error_override = $qfh_ret[8];
+
 		$reply['search_query'] = [$search, $search_language];
 		$reply['vfeed_group_enabled'] = $vfeed_group_enabled;
 
@@ -387,28 +389,32 @@ class Feeds extends Handler_Protected {
 
 			if (is_object($result)) {
 
-				switch ($view_mode) {
-					case "unread":
-						$message = __("No unread articles found to display.");
-						break;
-					case "updated":
-						$message = __("No updated articles found to display.");
-						break;
-					case "marked":
-						$message = __("No starred articles found to display.");
-						break;
-					default:
-						if ($feed < LABEL_BASE_INDEX) {
-							$message = __("No articles found to display. You can assign articles to labels manually from article header context menu (applies to all selected articles) or use a filter.");
-						} else {
-							$message = __("No articles found to display.");
-						}
+				if ($query_error_override) {
+					$message = $query_error_override;
+				} else {
+					switch ($view_mode) {
+						case "unread":
+							$message = __("No unread articles found to display.");
+							break;
+						case "updated":
+							$message = __("No updated articles found to display.");
+							break;
+						case "marked":
+							$message = __("No starred articles found to display.");
+							break;
+						default:
+							if ($feed < LABEL_BASE_INDEX) {
+								$message = __("No articles found to display. You can assign articles to labels manually from article header context menu (applies to all selected articles) or use a filter.");
+							} else {
+								$message = __("No articles found to display.");
+							}
+					}
 				}
 
 				if (!$offset && $message) {
 					$reply['content'] = "<div class='whiteBox'>$message";
 
-					$reply['content'] .= "<p><span class=\"insensitive\">";
+					$reply['content'] .= "<p><span class=\"text-muted\">";
 
 					$sth = $this->pdo->prepare("SELECT " . SUBSTRING_FOR_DATE . "(MAX(last_updated), 1, 19) AS last_updated FROM ttrss_feeds
                         WHERE owner_uid = ?");
@@ -428,7 +434,7 @@ class Feeds extends Handler_Protected {
 
 					if ($num_errors > 0) {
 						$reply['content'] .= "<br/>";
-						$reply['content'] .= "<a class=\"insensitive\" href=\"#\" onclick=\"CommonDialogs.showFeedsWithErrors()\">" .
+						$reply['content'] .= "<a class=\"text-muted\" href=\"#\" onclick=\"CommonDialogs.showFeedsWithErrors()\">" .
 							__('Some feeds have update errors (click for details)') . "</a>";
 					}
 					$reply['content'] .= "</span></p></div>";
@@ -585,7 +591,7 @@ class Feeds extends Handler_Protected {
 
 		$reply['headlines']['content'] = "<div class='whiteBox'>".__('No feed selected.');
 
-		$reply['headlines']['content'] .= "<p><span class=\"insensitive\">";
+		$reply['headlines']['content'] .= "<p><span class=\"text-muted\">";
 
 		$sth = $this->pdo->prepare("SELECT ".SUBSTRING_FOR_DATE."(MAX(last_updated), 1, 19) AS last_updated FROM ttrss_feeds
 			WHERE owner_uid = ?");
@@ -605,7 +611,7 @@ class Feeds extends Handler_Protected {
 
 		if ($num_errors > 0) {
 			$reply['headlines']['content'] .= "<br/>";
-			$reply['headlines']['content'] .= "<a class=\"insensitive\" href=\"#\" onclick=\"CommonDialogs.showFeedsWithErrors()\">".
+			$reply['headlines']['content'] .= "<a class=\"text-muted\" href=\"#\" onclick=\"CommonDialogs.showFeedsWithErrors()\">".
 				__('Some feeds have update errors (click for details)')."</a>";
 		}
 		$reply['headlines']['content'] .= "</span></p>";
@@ -645,122 +651,72 @@ class Feeds extends Handler_Protected {
 		print_notice("Provided URL is a HTML page referencing multiple feeds, please select required feed from the dropdown menu below.");
 		print "<p></div>";
 
-		print "<div class=\"dlgSec\">".__("Feed or site URL")."</div>";
-		print "<div class=\"dlgSecCont\">";
+		print "<section>";
 
-		print "<div style='float : right'>
-			<img style='display : none'
-				id='feed_add_spinner' src='images/indicator_white.gif'></div>";
-
-		print "<input style=\"font-size : 16px; width : 20em;\"
+		print "<fieldset>";
+		print "<div style='float : right'><img style='display : none' id='feed_add_spinner' src='images/indicator_white.gif'></div>";
+		print "<input style='font-size : 16px; width : 500px;'
 			placeHolder=\"".__("Feed or site URL")."\"
-			dojoType=\"dijit.form.ValidationTextBox\" required=\"1\" name=\"feed\" id=\"feedDlg_feedUrl\">";
+			dojoType='dijit.form.ValidationTextBox' required='1' name='feed' id='feedDlg_feedUrl'>";
 
-		print "<hr/>";
+		print "</fieldset>";
+
+		print "<fieldset>";
 
 		if (get_pref('ENABLE_FEED_CATS')) {
-			print __('Place in category:') . " ";
-			print_feed_cat_select("cat", false, 'dojoType="dijit.form.Select"');
+			print "<label class='inline'>" . __('Place in category:') . "</label> ";
+			print_feed_cat_select("cat", false, 'dojoType="fox.form.Select"');
 		}
 
-		print "</div>";
+		print "</fieldset>";
+
+		print "</section>";
 
 		print '<div id="feedDlg_feedsContainer" style="display : none">
-
-				<div class="dlgSec">' . __('Available feeds') . '</div>
-				<div class="dlgSecCont">'.
-				'<select id="feedDlg_feedContainerSelect"
-					dojoType="dijit.form.Select" size="3">
-					<script type="dojo/method" event="onChange" args="value">
-						dijit.byId("feedDlg_feedUrl").attr("value", value);
-					</script>
-				</select>'.
-				'</div></div>';
+				<header>' . __('Available feeds') . '</header>
+				<section>
+					<fieldset>
+						<select id="feedDlg_feedContainerSelect"
+							dojoType="fox.form.Select" size="3">
+							<script type="dojo/method" event="onChange" args="value">
+								dijit.byId("feedDlg_feedUrl").attr("value", value);
+							</script>
+						</select>
+					</fieldset>
+				</section>
+			</div>';
 
 		print "<div id='feedDlg_loginContainer' style='display : none'>
-
-				<div class=\"dlgSec\">".__("Authentication")."</div>
-				<div class=\"dlgSecCont\">".
-
-				" <input dojoType=\"dijit.form.TextBox\" name='login'\"
-					placeHolder=\"".__("Login")."\"
-					autocomplete=\"new-password\"
-					style=\"width : 10em;\"> ".
-				" <input
-					placeHolder=\"".__("Password")."\"
-					dojoType=\"dijit.form.TextBox\" type='password'
-					autocomplete=\"new-password\"
-					style=\"width : 10em;\" name='pass'\">
-			</div></div>";
-
-
-		print "<div style=\"clear : both\">
-			<input type=\"checkbox\" name=\"need_auth\" dojoType=\"dijit.form.CheckBox\" id=\"feedDlg_loginCheck\"
-					onclick='displayIfChecked(this, \"feedDlg_loginContainer\")'>
-				<label for=\"feedDlg_loginCheck\">".
-				__('This feed requires authentication.')."</div>";
-
-		print "<div class=\"dlgButtons\">
-			<button dojoType=\"dijit.form.Button\" class=\"alt-primary\" type=\"submit\" onclick=\"return dijit.byId('feedAddDlg').execute()\">".__('Subscribe')."</button>";
-
-		if (!(defined('_DISABLE_FEED_BROWSER') && _DISABLE_FEED_BROWSER)) {
-			print "<button dojoType=\"dijit.form.Button\" onclick=\"return CommonDialogs.feedBrowser()\">".__('More feeds')."</button>";
-		}
-
-		print "<button dojoType=\"dijit.form.Button\" onclick=\"return dijit.byId('feedAddDlg').hide()\">".__('Cancel')."</button>
+				<section>
+				<fieldset>
+					<input dojoType=\"dijit.form.TextBox\" name='login'\"
+						placeHolder=\"".__("Login")."\"
+						autocomplete=\"new-password\"
+						style=\"width : 10em;\">
+					<input
+						placeHolder=\"".__("Password")."\"
+						dojoType=\"dijit.form.TextBox\" type='password'
+						autocomplete=\"new-password\"
+						style=\"width : 10em;\" name='pass'\">
+				</fieldset>
+				</section>
 			</div>";
 
+		print "<section>";
+		print "<label>
+			<label class='checkbox'><input type='checkbox' name='need_auth' dojoType='dijit.form.CheckBox' id='feedDlg_loginCheck'
+					onclick='displayIfChecked(this, \"feedDlg_loginContainer\")'>
+				".__('This feed requires authentication.')."</label>";
+		print "</section>";
+
+		print "<footer>";
+		print "<button dojoType='dijit.form.Button' class='alt-primary' type='submit' 
+				onclick=\"return dijit.byId('feedAddDlg').execute()\">".__('Subscribe')."</button>";
+
+		print "<button dojoType='dijit.form.Button' onclick=\"return dijit.byId('feedAddDlg').hide()\">".__('Cancel')."</button>";
+		print "</footer>";
+
 		print "</form>";
-
-		//return;
-	}
-
-	function feedBrowser() {
-		if (defined('_DISABLE_FEED_BROWSER') && _DISABLE_FEED_BROWSER) return;
-
-		$browser_search = $_REQUEST["search"];
-
-		print_hidden("op", "rpc");
-		print_hidden("method", "updateFeedBrowser");
-
-		print "<div dojoType=\"dijit.Toolbar\">
-			<div style='float : right'>
-			<img style='display : none'
-				id='feed_browser_spinner' src='images/indicator_white.gif'>
-			<input name=\"search\" dojoType=\"dijit.form.TextBox\" size=\"20\" type=\"search\"
-				onchange=\"dijit.byId('feedBrowserDlg').update()\" value=\"$browser_search\">
-			<button dojoType=\"dijit.form.Button\" onclick=\"dijit.byId('feedBrowserDlg').update()\">".__('Search')."</button>
-		</div>";
-
-		print " <select name=\"mode\" dojoType=\"dijit.form.Select\" onchange=\"dijit.byId('feedBrowserDlg').update()\">
-			<option value='1'>" . __('Popular feeds') . "</option>
-			<option value='2'>" . __('Feed archive') . "</option>
-			</select> ";
-
-		print __("limit:");
-
-		print " <select dojoType=\"dijit.form.Select\" name=\"limit\" onchange=\"dijit.byId('feedBrowserDlg').update()\">";
-
-		foreach (array(25, 50, 100, 200) as $l) {
-			//$issel = ($l == $limit) ? "selected=\"1\"" : "";
-			print "<option value=\"$l\">$l</option>";
-		}
-
-		print "</select> ";
-
-		print "</div>";
-
-		require_once "feedbrowser.php";
-
-		print "<ul class='browseFeedList' id='browseFeedList'>";
-		print make_feed_browser("", 25);
-		print "</ul>";
-
-		print "<div align='center'>
-			<button dojoType=\"dijit.form.Button\" onclick=\"dijit.byId('feedBrowserDlg').execute()\">".__('Subscribe')."</button>
-			<button dojoType=\"dijit.form.Button\" style='display : none' id='feed_archive_remove' onclick=\"dijit.byId('feedBrowserDlg').removeFromArchive()\">".__('Remove')."</button>
-			<button dojoType=\"dijit.form.Button\" onclick=\"dijit.byId('feedBrowserDlg').hide()\" >".__('Cancel')."</button></div>";
-
 	}
 
 	function search() {
@@ -771,35 +727,36 @@ class Feeds extends Handler_Protected {
 
 		print "<form onsubmit='return false;'>";
 
-		print "<div class=\"dlgSec\">".__('Look for')."</div>";
+		print "<section>";
 
-		print "<div class=\"dlgSecCont\">";
-
-		print "<input dojoType=\"dijit.form.ValidationTextBox\"
-			style=\"font-size : 16px; width : 20em;\"
-			required=\"1\" name=\"query\" type=\"search\" value=''>";
-
-		print "<hr/><span style='float : right'>".T_sprintf('in %s', $this->getFeedTitle($active_feed_id, $is_cat))."</span>";
+		print "<fieldset>";
+		print "<input dojoType='dijit.form.ValidationTextBox' id='search_query'
+			style='font-size : 16px; width : 540px;'
+			placeHolder=\"".T_sprintf("Search %s...", $this->getFeedTitle($active_feed_id, $is_cat))."\"
+			name='query' type='search' value=''>";
+		print "</fieldset>";
 
 		if (DB_TYPE == "pgsql") {
-			print "<hr/>";
-			print_select("search_language", "", Pref_Feeds::$feed_languages,
-				"dojoType='dijit.form.Select' title=\"".__('Used for word stemming')."\"");
+			print "<fieldset>";
+			print "<label class='inline'>" . __("Language:") . "</label>";
+			print_select("search_language", get_pref('DEFAULT_SEARCH_LANGUAGE'), Pref_Feeds::get_ts_languages(),
+				"dojoType='fox.form.Select' title=\"".__('Used for word stemming')."\"");
+			print "</fieldset>";
 		}
 
-		print "</div>";
+		print "</section>";
 
-		print "<div class=\"dlgButtons\">";
+		print "<footer>";
 
 		if (count(PluginHost::getInstance()->get_hooks(PluginHost::HOOK_SEARCH)) == 0) {
-			print "<div style=\"float : left\">
-				<a class=\"visibleLink\" target=\"_blank\" href=\"http://tt-rss.org/wiki/SearchSyntax\">".__("Search syntax")."</a>
-				</div>";
+			print "<button dojoType='dijit.form.Button' style='float : left' class='alt-info' onclick='window.open(\"https://tt-rss.org/wiki/SearchSyntax\")'>
+				<i class='material-icons'>help</i> ".__("Search syntax")."</button>";
 		}
 
-		print "<button dojoType=\"dijit.form.Button\" type=\"submit\" class=\"alt-primary\" onclick=\"dijit.byId('searchDlg').execute()\">".__('Search')."</button>
-		<button dojoType=\"dijit.form.Button\" onclick=\"dijit.byId('searchDlg').hide()\">".__('Cancel')."</button>
-		</div>";
+		print "<button dojoType='dijit.form.Button' type='submit' class='alt-primary' onclick=\"dijit.byId('searchDlg').execute()\">".__('Search')."</button>
+			<button dojoType='dijit.form.Button' onclick=\"dijit.byId('searchDlg').hide()\">".__('Cancel')."</button>";
+
+		print "</footer>";
 
 		print "</form>";
 	}
@@ -826,36 +783,61 @@ class Feeds extends Handler_Protected {
 		$rehash_checked = isset($_REQUEST["force_rehash"]) ? "checked" : "";
 
 		?>
+		<!DOCTYPE html>
 		<html>
 		<head>
 			<?php echo stylesheet_tag("css/default.css") ?>
 			<title>Feed Debugger</title>
+			<?php
+				echo stylesheet_tag("css/default.css");
+				echo javascript_tag("lib/prototype.js");
+				echo javascript_tag("lib/dojo/dojo.js");
+				echo javascript_tag("lib/dojo/tt-rss-layer.js");
+			?>
 		</head>
-		<body class="small_margins ttrss_utility claro">
-		<h1>Feed Debugger: <?php echo "$feed_id: " . $this->getFeedTitle($feed_id) ?></h1>
-		<form method="GET" action="">
-			<input type="hidden" name="op" value="feeds">
-			<input type="hidden" name="method" value="update_debugger">
-			<input type="hidden" name="xdebug" value="1">
-			<input type="hidden" name="csrf_token" value="<?php echo $csrf_token ?>">
-			<input type="hidden" name="action" value="do_update">
-			<input type="hidden" name="feed_id" value="<?php echo $feed_id ?>">
-			<input type="checkbox" name="force_refetch" value="1" <?php echo $refetch_checked ?>> Force refetch<br/>
-			<input type="checkbox" name="force_rehash" value="1" <?php echo $rehash_checked ?>> Force rehash<br/>
+		<body class="flat ttrss_utility feed_debugger">
+		<script type="text/javascript">
+			require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
+				'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'],function(parser, ready){
+				ready(function() {
+					parser.parse();
+				});
+			});
+		</script>
 
-			<p/><button type="submit">Continue</button>
-		</form>
+			<div class="container">
+				<h1>Feed Debugger: <?php echo "$feed_id: " . $this->getFeedTitle($feed_id) ?></h1>
+				<div class="content">
+					<form method="GET" action="">
+						<input type="hidden" name="op" value="feeds">
+						<input type="hidden" name="method" value="update_debugger">
+						<input type="hidden" name="xdebug" value="1">
+						<input type="hidden" name="csrf_token" value="<?php echo $csrf_token ?>">
+						<input type="hidden" name="action" value="do_update">
+						<input type="hidden" name="feed_id" value="<?php echo $feed_id ?>">
 
-		<hr>
+						<fieldset class="narrow">
+							<label class="checkbox"><input dojoType="dijit.form.CheckBox" type="checkbox" name="force_refetch" value="1" <?php echo $refetch_checked ?>> Force refetch</label>
+						</fieldset>
 
-		<pre><?php
+						<fieldset class="narrow">
+							<label class="checkbox"><input dojoType="dijit.form.CheckBox" type="checkbox" name="force_rehash" value="1" <?php echo $rehash_checked ?>> Force rehash</label>
+						</fieldset>
 
-		if ($do_update) {
-			RSSUtils::update_rss_feed($feed_id, true);
-		}
+						<button type="submit" dojoType="dijit.form.Button" class="alt-primary">Continue</button>
+					</form>
 
-		?></pre>
+					<hr>
 
+					<pre><?php
+
+					if ($do_update) {
+						RSSUtils::update_rss_feed($feed_id, true);
+					}
+
+					?></pre>
+				</div>
+			</div>
 		</body>
 		</html>
 		<?php
@@ -868,9 +850,23 @@ class Feeds extends Handler_Protected {
 
 		$pdo = Db::pdo();
 
-		// Todo: all this interval stuff needs some generic generator function
+		if (is_array($search) && $search[0]) {
+			$search_qpart = "";
 
-		$search_qpart = is_array($search) && $search[0] ? search_to_sql($search[0], $search[1])[0] : 'true';
+			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_SEARCH) as $plugin) {
+				list($search_qpart, $search_words) = $plugin->hook_search($search[0]);
+				break;
+			}
+
+			// fall back in case of no plugins
+			if (!$search_qpart) {
+				list($search_qpart, $search_words) = search_to_sql($search[0], $search[1]);
+			}
+		} else {
+			$search_qpart = "true";
+		}
+
+		// TODO: all this interval stuff needs some generic generator function
 
 		switch ($mode) {
 			case "1day":
@@ -1135,6 +1131,7 @@ class Feeds extends Handler_Protected {
 
 		global $fetch_last_error;
 		global $fetch_last_error_content;
+		global $fetch_last_content_type;
 
 		$pdo = Db::pdo();
 
@@ -1156,7 +1153,7 @@ class Feeds extends Handler_Protected {
 			return array("code" => 5, "message" => $fetch_last_error);
 		}
 
-		if (is_html($contents)) {
+		if (mb_strpos($fetch_last_content_type, "html") !== FALSE && is_html($contents)) {
 			$feedUrls = get_feeds_from_html($url, $contents);
 
 			if (count($feedUrls) == 0) {
@@ -1445,10 +1442,13 @@ class Feeds extends Handler_Protected {
 
 		$ext_tables_part = "";
 		$limit_query_part = "";
+		$query_error_override = "";
 
-		$search_words = array();
+		$search_words = [];
 
 		if ($search) {
+			$search_query_part = "";
+
 			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_SEARCH) as $plugin) {
 				list($search_query_part, $search_words) = $plugin->hook_search($search);
 				break;
@@ -1458,6 +1458,21 @@ class Feeds extends Handler_Protected {
 			if (!$search_query_part) {
 				list($search_query_part, $search_words) = search_to_sql($search, $search_language);
 			}
+
+			if (DB_TYPE == "pgsql") {
+				$test_sth = $pdo->prepare("select $search_query_part 
+					FROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1");
+
+				try {
+					$test_sth->execute();
+				} catch (PDOException $e) {
+					// looks like tsquery syntax is invalid
+					$search_query_part = "false";
+
+					$query_error_override = T_sprintf("Incorrect search syntax: %s.", implode(" ", $search_words));
+				}
+			}
+
 			$search_query_part .= " AND ";
 		} else {
 			$search_query_part = "";
@@ -1749,7 +1764,7 @@ class Feeds extends Handler_Protected {
 					$first_id = (int)$row["id"];
 
 					if ($offset > 0 && $first_id && $check_first_id && $first_id != $check_first_id) {
-						return array(-1, $feed_title, $feed_site_url, $last_error, $last_updated, $search_words, $first_id, $vfeed_query_part != "");
+						return array(-1, $feed_title, $feed_site_url, $last_error, $last_updated, $search_words, $first_id, $vfeed_query_part != "", $query_error_override);
 					}
 				}
 			}
@@ -1838,7 +1853,7 @@ class Feeds extends Handler_Protected {
 			$res = $pdo->query($query);
 		}
 
-		return array($res, $feed_title, $feed_site_url, $last_error, $last_updated, $search_words, $first_id, $vfeed_query_part != "");
+		return array($res, $feed_title, $feed_site_url, $last_error, $last_updated, $search_words, $first_id, $vfeed_query_part != "", $query_error_override);
 
 	}
 

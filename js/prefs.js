@@ -29,6 +29,7 @@ require(["dojo/_base/kernel",
 	"dijit/form/Select",
 	"dijit/form/SimpleTextarea",
 	"dijit/form/TextBox",
+	"dijit/form/NumberSpinner",
 	"dijit/form/ValidationTextBox",
 	"dijit/InlineEditBox",
 	"dijit/layout/AccordionContainer",
@@ -52,7 +53,11 @@ require(["dojo/_base/kernel",
 	"fox/PrefFilterStore",
 	"fox/PrefFeedTree",
 	"fox/PrefFilterTree",
-	"fox/PrefLabelTree"], function (dojo, declare, ready, parser, AppBase) {
+	"fox/PrefLabelTree",
+	"fox/Toolbar",
+	"fox/form/Select",
+	"fox/form/ComboButton",
+	"fox/form/DropDownButton"], function (dojo, declare, ready, parser, AppBase) {
 
 	ready(function () {
 		try {
@@ -77,6 +82,7 @@ require(["dojo/_base/kernel",
 					this.enableCsrfSupport();
 
 					document.onkeydown = (event) => { return App.hotkeyHandler(event) };
+					document.onkeypress = (event) => { return App.hotkeyHandler(event) };
 					App.setLoadingProgress(50);
 					Notify.close();
 
@@ -115,6 +121,10 @@ require(["dojo/_base/kernel",
 				},
 				hotkeyHandler: function (event) {
 					if (event.target.nodeName == "INPUT" || event.target.nodeName == "TEXTAREA") return;
+
+					// Arrow buttons and escape are not reported via keypress, handle them via keydown.
+					// escape = 27, left = 37, up = 38, right = 39, down = 40
+					if (event.type == "keydown" && event.which != 27 && (event.which < 37 || event.which > 40)) return;
 
 					const action_name = App.keyeventToAction(event);
 

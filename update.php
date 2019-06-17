@@ -22,9 +22,9 @@
 	init_plugins();
 
 	$longopts = array("feeds",
-			"feedbrowser",
 			"daemon",
 			"daemon-loop",
+			"send-digests",
 			"task:",
 			"cleanup-tags",
 			"quiet",
@@ -56,14 +56,15 @@
 	}
 
 	if (count($options) == 0 && !defined('STDIN')) {
-		?> <html>
+		?>
+		<!DOCTYPE html>
+		<html>
 		<head>
 		<title>Tiny Tiny RSS data update script.</title>
 		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 		</head>
 
 		<body>
-		<div class="floatingLogo"><img src="images/logo_small.png"></div>
 		<h1><?php echo __("Tiny Tiny RSS data update script.") ?></h1>
 
 		<?php print_error("Please run this script from the command line. Use option \"--help\" to display command help if this error is displayed erroneously."); ?>
@@ -77,7 +78,6 @@
 		print "Tiny Tiny RSS data update script.\n\n";
 		print "Options:\n";
 		print "  --feeds              - update feeds\n";
-		print "  --feedbrowser        - update feedbrowser\n";
 		print "  --daemon             - start single-process update daemon\n";
 		print "  --task N             - create lockfile using this task id\n";
 		print "  --cleanup-tags       - perform tags table maintenance\n";
@@ -88,6 +88,7 @@
 		print "  --update-schema      - update database schema\n";
 		print "  --gen-search-idx     - generate basic PostgreSQL fulltext search index\n";
 		print "  --convert-filters    - convert type1 filters to type2\n";
+		print "  --send-digests       - send pending email digests\n";
 		print "  --force-update       - force update of all feeds\n";
 		print "  --list-plugins       - list all available plugins\n";
 		print "  --debug-feed N       - perform debug update of feed N\n";
@@ -112,7 +113,7 @@
 		$schema_version = get_schema_version();
 
 		if ($schema_version != SCHEMA_VERSION) {
-			die("Schema version is wrong, please upgrade the database.\n");
+			die("Schema version is wrong, please upgrade the database (--update-schema).\n");
 		}
 	}
 
@@ -178,11 +179,6 @@
 		RSSUtils::housekeeping_common(true);
 
 		PluginHost::getInstance()->run_hooks(PluginHost::HOOK_UPDATE_TASK, "hook_update_task", $op);
-	}
-
-	if (isset($options["feedbrowser"])) {
-		$count = RSSUtils::update_feedbrowser_cache();
-		print "Finished, $count feeds processed.\n";
 	}
 
 	if (isset($options["daemon"])) {
@@ -326,30 +322,41 @@
 	}
 
 	if (isset($options["update-schema"])) {
-		Debug::log("checking for updates (" . DB_TYPE . ")...");
+		Debug::log("Checking for updates (" . DB_TYPE . ")...");
 
 		$updater = new DbUpdater(Db::pdo(), DB_TYPE, SCHEMA_VERSION);
 
 		if ($updater->isUpdateRequired()) {
-			Debug::log("schema update required, version " . $updater->getSchemaVersion() . " to " . SCHEMA_VERSION);
-			Debug::log("WARNING: please backup your database before continuing.");
+			Debug::log("Schema update required, version " . $updater->getSchemaVersion() . " to " . SCHEMA_VERSION);
+
+			if (DB_TYPE == "mysql")
+				Debug::Log("READ THIS: Due to MySQL limitations, your database is not completely protected while updating.\n".
+					"Errors may put it in an inconsistent state requiring manual rollback.\nBACKUP YOUR DATABASE BEFORE CONTINUING.");
+			else
+				Debug::log("WARNING: please backup your database before continuing.");
+
 			Debug::log("Type 'yes' to continue.");
 
 			if (read_stdin() != 'yes')
 				exit;
 
+			Debug::log("Performing updates to version " . SCHEMA_VERSION);
+
 			for ($i = $updater->getSchemaVersion() + 1; $i <= SCHEMA_VERSION; $i++) {
-				Debug::log("performing update up to version $i...");
+				Debug::log("* Updating to version $i...");
 
 				$result = $updater->performUpdateTo($i, false);
 
-				Debug::log($result ? "OK!" : "FAILED!");
-
-				if (!$result) return;
+				if ($result) {
+					Debug::log("* Completed.");
+				} else {
+					Debug::log("One of the updates failed. Either retry the process or perform updates manually.");
+					return;
+				}
 
 			}
 		} else {
-			Debug::log("update not required.");
+			Debug::log("Update not required.");
 		}
 
 	}
@@ -425,6 +432,10 @@
 		$rc = RSSUtils::update_rss_feed($feed) != false ? 0 : 1;
 
 		exit($rc);
+	}
+
+	if (isset($options["send-digests"])) {
+		Digest::send_headlines_digests();
 	}
 
 	PluginHost::getInstance()->run_commands($options);

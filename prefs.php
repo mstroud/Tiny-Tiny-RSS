@@ -26,8 +26,7 @@
 
 	header('Content-Type: text/html; charset=utf-8');
 ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html>
 <html>
 <head>
 	<title>Tiny Tiny RSS : <?php echo __("Preferences") ?></title>
@@ -154,13 +153,13 @@
         ?>
         </div>
     <div id="footer" dojoType="dijit.layout.ContentPane" region="bottom">
-        <a class="insensitive" target="_blank" href="http://tt-rss.org/">
+        <a class="text-muted" target="_blank" href="http://tt-rss.org/">
         Tiny Tiny RSS</a>
         <?php if (!defined('HIDE_VERSION')) { ?>
              v<?php echo VERSION ?>
         <?php } ?>
         &copy; 2005-<?php echo date('Y') ?>
-        <a class="insensitive" target="_blank"
+        <a class="text-muted" target="_blank"
         href="http://fakecake.org/">Andrew Dolgov</a>
     </div> <!-- footer -->
 </div>

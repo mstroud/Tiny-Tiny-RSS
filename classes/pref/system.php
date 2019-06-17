@@ -54,7 +54,7 @@ class Pref_System extends Handler_Protected {
 				</tr>";
 
 			while ($line = $res->fetch()) {
-				print "<tr class=\"errrow\">";
+				print "<tr>";
 
 				foreach ($line as $k => $v) {
 					$line[$k] = htmlspecialchars($v);
@@ -78,6 +78,20 @@ class Pref_System extends Handler_Protected {
 			print_notice("Please set LOG_DESTINATION to 'sql' in config.php to enable database logging.");
 
 		}
+
+		print "</div>";
+
+		print "<div dojoType=\"dijit.layout.AccordionPane\" 
+			title=\"<i class='material-icons'>info</i> ".__('PHP Information')."\">";
+
+		ob_start();
+		phpinfo();
+		$info = ob_get_contents();
+		ob_end_clean();
+
+		print "<div class='phpinfo'>";
+		print preg_replace( '%^.*<body>(.*)</body>.*$%ms','$1', $info);
+		print "</div>";
 
 		print "</div>";
 
