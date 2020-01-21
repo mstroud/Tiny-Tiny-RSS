@@ -656,6 +656,13 @@ body.ttrss_main #headlines-frame div.feed-title a {
 body.ttrss_main #headlines-frame div.feed-title a:hover {
   color: #257aa7;
 }
+body.ttrss_main #headlines-frame.smooth-scroll {
+  scroll-behavior: smooth;
+}
+body.ttrss_main #headlines-frame.forbid-smooth-scroll,
+body.ttrss_main #content-insert.forbid-smooth-scroll {
+  scroll-behavior: auto;
+}
 body.ttrss_main #toolbar-frame_splitter {
   display: none;
 }
@@ -742,6 +749,7 @@ body.ttrss_main #content-insert {
   line-height: 1.5;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 body.ttrss_main img.feed-icon,
 body.ttrss_main img.icon {
@@ -858,11 +866,21 @@ body.ttrss_main .dijitDialog h3:first-of-type,
 body.ttrss_main .dijitDialog h4:first-of-type {
   margin-top: 0px;
 }
-body.ttrss_main i.icon-syndicate {
+body.ttrss_main #toolbar-headlines i.icon-syndicate {
   color: #ff7c4b;
   margin-right: 8px;
   border: 1px solid #ff7c4b;
   border-radius: 4px;
+}
+body.ttrss_main #toolbar-headlines #feed_current_unread {
+  margin-left: 8px;
+  font-weight: bold;
+  text-align: center;
+  border: 1px solid #2a89bc;
+  color: white;
+  background: #2a89bc;
+  border-radius: 4px;
+  min-width: 23px;
 }
 body.ttrss_main i.icon-no-feed {
   opacity: 0.2;
@@ -1547,6 +1565,14 @@ body.ttrss_prefs .phpinfo td.v {
   font-family: monospace;
   word-break: break-all;
 }
+body.ttrss_prefs #filterNewRuleDlg .invalid,
+body.ttrss_main #filterNewRuleDlg .invalid {
+  background: #ffc0c0;
+}
+body.ttrss_prefs #filterNewRuleDlg .valid,
+body.ttrss_main #filterNewRuleDlg .valid {
+  background: #c0ffc0;
+}
 body.ttrss_prefs fieldset,
 body.ttrss_utility fieldset {
   border-width: 0px;
@@ -1838,7 +1864,7 @@ body.ttrss_zoom div.post .attachments {
 }
 body.ttrss_zoom div.post div.header {
   padding-bottom: 10px;
-  border: 0px solid #eee;
+  border: 0px solid #ddd;
   border-bottom-width: 1px;
   background: white;
   font-size: 12px;
@@ -1871,7 +1897,7 @@ body.ttrss_zoom div.post div.content blockquote {
   margin: 5px 0px 5px 0px;
   color: #555;
   padding-left: 10px;
-  border: 0px solid #ccc;
+  border: 0px solid #ddd;
   border-left-width: 4px;
 }
 body.ttrss_zoom div.post div.content code {

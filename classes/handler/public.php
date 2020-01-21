@@ -85,7 +85,7 @@ class Handler_Public extends Handler {
 			$tpl->readTemplateFromFile("templates/generated_feed.txt");
 
 			$tpl->setVariable('FEED_TITLE', $feed_title, true);
-			$tpl->setVariable('VERSION', VERSION, true);
+			$tpl->setVariable('VERSION', get_version(), true);
 			$tpl->setVariable('FEED_URL', htmlspecialchars($feed_self_url), true);
 
 			$tpl->setVariable('SELF_URL', htmlspecialchars(get_self_url_prefix()), true);
@@ -110,6 +110,8 @@ class Handler_Public extends Handler {
 
 				$content = sanitize($line["content"], false, $owner_uid,
 					$feed_site_url, false, $line["id"]);
+
+				$content = DiskCache::rewriteUrls($content);
 
 				if ($line['note']) {
 					$content = "<div style=\"$note_style\">Article note: " . $line['note'] . "</div>" .
@@ -156,8 +158,9 @@ class Handler_Public extends Handler {
 					$tpl->setVariable('ARTICLE_ENCLOSURE_LENGTH', null, true);
 				}
 
-				$tpl->setVariable('ARTICLE_OG_IMAGE',
-                        $this->get_article_image($enclosures, $line['content'], $feed_site_url), true);
+				list ($og_image, $og_stream) = Article::get_article_image($enclosures, $line['content'], $feed_site_url);
+
+				$tpl->setVariable('ARTICLE_OG_IMAGE', $og_image, true);
 
 				$tpl->addBlock('entry');
 			}
@@ -179,7 +182,6 @@ class Handler_Public extends Handler {
 			$feed = array();
 
 			$feed['title'] = $feed_title;
-			$feed['version'] = VERSION;
 			$feed['feed_url'] = $feed_self_url;
 
 			$feed['self_url'] = get_self_url_prefix();
@@ -298,52 +300,26 @@ class Handler_Public extends Handler {
 	function share() {
 		$uuid = clean($_REQUEST["key"]);
 
-		$sth = $this->pdo->prepare("SELECT ref_id, owner_uid FROM ttrss_user_entries WHERE
-			uuid = ?");
-		$sth->execute([$uuid]);
+		if ($uuid) {
+			$sth = $this->pdo->prepare("SELECT ref_id, owner_uid 
+						FROM ttrss_user_entries WHERE uuid = ?");
+			$sth->execute([$uuid]);
 
-		if ($row = $sth->fetch()) {
-			header("Content-Type: text/html");
+			if ($row = $sth->fetch()) {
+				header("Content-Type: text/html");
 
-			$id = $row["ref_id"];
-			$owner_uid = $row["owner_uid"];
+				$id = $row["ref_id"];
+				$owner_uid = $row["owner_uid"];
 
-			print $this->format_article($id, $owner_uid);
+				print $this->format_article($id, $owner_uid);
 
-		} else {
-			header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
-			print "Article not found.";
+				return;
+			}
 		}
 
+		header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
+		print "Article not found.";
 	}
-
-	private function get_article_image($enclosures, $content, $site_url) {
-	    $og_image = false;
-
-		foreach ($enclosures as $enc) {
-			if (strpos($enc["content_type"], "image/") !== FALSE) {
-				return rewrite_relative_url($site_url, $enc["content_url"]);
-			}
-		}
-
-		if (!$og_image) {
-			$tmpdoc = new DOMDocument();
-
-			if (@$tmpdoc->loadHTML('<?xml encoding="UTF-8">' . mb_substr($content, 0, 131070))) {
-				$tmpxpath = new DOMXPath($tmpdoc);
-				$imgs = $tmpxpath->query("//img");
-
-				foreach ($imgs as $img) {
-					$src = $img->getAttribute("src");
-
-					if (mb_strpos($src, "data:") !== 0)
-						return rewrite_relative_url($site_url, $src);
-				}
-			}
-		}
-
-		return false;
-    }
 
 	private function format_article($id, $owner_uid) {
 
@@ -380,7 +356,7 @@ class Handler_Public extends Handler {
 				$line = $p->hook_render_article($line);
 			}
 
-			$line['content'] = rewrite_cached_urls($line['content']);
+			$line['content'] = DiskCache::rewriteUrls($line['content']);
 
 			$enclosures = Article::get_article_enclosures($line["id"]);
 
@@ -390,7 +366,18 @@ class Handler_Public extends Handler {
                     <html><head>
                     <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
                     <title>".$line["title"]."</title>".
-                    stylesheet_tag("css/default.css")."
+					javascript_tag("lib/prototype.js").
+					javascript_tag("js/utility.js")."
+					<style type='text/css'>
+                    @media (prefers-color-scheme: dark) {
+						body {
+							background : #222;
+						}
+					}
+                    body.css_loading * {
+						display : none;
+					}                   
+					</style>
                     <link rel='shortcut icon' type='image/png' href='images/favicon.png'>
                     <link rel='icon' type='image/png' sizes='72x72' href='images/favicon-72px.png'>";
 
@@ -407,13 +394,13 @@ class Handler_Public extends Handler {
 
             $rv .= "</head>";
 
-            $og_image = $this->get_article_image($enclosures, $line['content'], $line["site_url"]);
+            list ($og_image, $og_stream) = Article::get_article_image($enclosures, $line['content'], $line["site_url"]);
 
             if ($og_image) {
                 $rv .= "<meta property='og:image' content=\"" . htmlspecialchars($og_image) . "\"/>";
             }
 
-            $rv .= "<body class='flat ttrss_utility ttrss_zoom'>";
+            $rv .= "<body class='flat ttrss_utility ttrss_zoom css_loading'>";
             $rv .= "<div class='container'>";
 
 			if ($line["link"]) {
@@ -534,7 +521,7 @@ class Handler_Public extends Handler {
 		<!DOCTYPE html>
 		<html>
 		<head>
-			<title><?php echo __("Share with Tiny Tiny RSS") ?> ?></title>
+			<title><?php echo __("Share with Tiny Tiny RSS") ?></title>
 			<?php
 			echo stylesheet_tag("css/default.css");
 			echo javascript_tag("lib/prototype.js");
@@ -1021,6 +1008,7 @@ class Handler_Public extends Handler {
 
 						$tpl->setVariable('LOGIN', $login);
 						$tpl->setVariable('RESETPASS_LINK', $resetpass_link);
+						$tpl->setVariable('TTRSS_HOST', SELF_URL_PATH);
 
 						$tpl->addBlock('message');
 
@@ -1200,24 +1188,18 @@ class Handler_Public extends Handler {
 	}
 
 	function cached_url() {
-		@$req_filename = basename($_GET['hash']);
+		list ($cache_dir, $filename) = explode("/", $_GET["file"], 2);
 
-		// we don't need an extension to find the file, hash is a complete URL
-		$hash = preg_replace("/\.[^\.]*$/", "", $req_filename);
+		// we do not allow files with extensions at the moment
+		$filename = str_replace(".", "", $filename);
 
-		if ($hash) {
+		$cache = new DiskCache($cache_dir);
 
-			$filename = CACHE_DIR . '/images/' . $hash;
-
-			if (file_exists($filename)) {
-				header("Content-Disposition: inline; filename=\"$req_filename\"");
-
-				send_local_file($filename);
-
-			} else {
-				header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
-				echo "File not found.";
-			}
+		if ($cache->exists($filename)) {
+			$cache->send($filename);
+		} else {
+			header($_SERVER["SERVER_PROTOCOL"]." 404 Not Found");
+			echo "File not found.";
 		}
 	}
 
@@ -1234,27 +1216,30 @@ class Handler_Public extends Handler {
 	public function pluginhandler() {
 		$host = new PluginHost();
 
-		$plugin = basename(clean($_REQUEST["plugin"]));
+		$plugin_name = clean_filename($_REQUEST["plugin"]);
 		$method = clean($_REQUEST["pmethod"]);
 
-		$host->load($plugin, PluginHost::KIND_USER, 0);
+		$host->load($plugin_name, PluginHost::KIND_USER, 0);
 		$host->load_data();
 
-		$pclass = $host->get_plugin($plugin);
+		$plugin = $host->get_plugin($plugin_name);
 
-		if ($pclass) {
-			if (method_exists($pclass, $method)) {
-				if ($pclass->is_public_method($method)) {
-					$pclass->$method();
+		if ($plugin) {
+			if (method_exists($plugin, $method)) {
+				if ($plugin->is_public_method($method)) {
+					$plugin->$method();
 				} else {
+					user_error("PluginHandler[PUBLIC]: Requested private method '$method' of plugin '$plugin_name'.", E_USER_WARNING);
 					header("Content-Type: text/json");
 					print error_json(6);
 				}
 			} else {
+				user_error("PluginHandler[PUBLIC]: Requested unknown method '$method' of plugin '$plugin_name'.", E_USER_WARNING);
 				header("Content-Type: text/json");
 				print error_json(13);
 			}
 		} else {
+			user_error("PluginHandler[PUBLIC]: Requested method '$method' of unknown plugin '$plugin_name'.", E_USER_WARNING);
 			header("Content-Type: text/json");
 			print error_json(14);
 		}

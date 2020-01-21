@@ -2,6 +2,7 @@
 /* global __, ngettext */
 define(["dojo/_base/declare"], function (declare) {
 	Article = {
+		_scroll_reset_timeout: false,
 		getScoreClass: function (score) {
 			if (score > 500) {
 				return "score-high";
@@ -32,7 +33,7 @@ define(["dojo/_base/declare"], function (declare) {
 			if (ids.length > 0) {
 				const score = prompt(__("Please enter new score for selected articles:"));
 
-				if (parseInt(score) != undefined) {
+				if (!isNaN(parseInt(score))) {
 					ids.each((id) => {
 						const row = $("RROW-" + id);
 
@@ -66,7 +67,7 @@ define(["dojo/_base/declare"], function (declare) {
 				const score_old = row.getAttribute("data-score");
 				const score = prompt(__("Please enter new score for this article:"), score_old);
 
-				if (parseInt(score) != undefined) {
+				if (!isNaN(parseInt(score))) {
 					row.setAttribute("data-score", score);
 
 					const pic = row.select(".icon-score")[0];
@@ -155,14 +156,14 @@ define(["dojo/_base/declare"], function (declare) {
 					comments_msg = hl.num_comments + " " + ngettext("comment", "comments", hl.num_comments)
 				}
 
-				comments = `<a href="${hl.comments}">(${comments_msg})</a>`;
+				comments = `<a href="${escapeHtml(hl.comments)}">(${comments_msg})</a>`;
 			}
 
 			return comments;
 		},
 		formatOriginallyFrom: function(hl) {
 			return hl.orig_feed ? `<span>
-					${__('Originally from:')} <a target="_blank" rel="noopener noreferrer" href="${hl.orig_feed[1]}">${hl.orig_feed[0]}</a>
+					${__('Originally from:')} <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(hl.orig_feed[1])}">${hl.orig_feed[0]}</a>
 					</span>` : "";
 		},
 		unpack: function(row) {
@@ -196,7 +197,9 @@ define(["dojo/_base/declare"], function (declare) {
 					const article = `<div class="post post-${hl.id}">
 						<div class="header">
 							<div class="row">
-								<div class="title"><a target="_blank" rel="noopener noreferrer" title="${hl.title}" href="${hl.link}">${hl.title}</a></div>
+								<div class="title"><a target="_blank" rel="noopener noreferrer"
+									title="${escapeHtml(hl.title)}"
+									href="${escapeHtml(hl.link)}">${hl.title}</a></div>
 								<div class="date">${hl.updated_long}</div>
 							</div>
 							<div class="row">
@@ -274,14 +277,27 @@ define(["dojo/_base/declare"], function (declare) {
 
 			dialog.show();
 		},
-		cdmScrollToId: function (id, force) {
+		cdmScrollToId: function (id, force, event) {
 			const ctr = $("headlines-frame");
 			const e = $("RROW-" + id);
+			const is_expanded = App.getInitParam("cdm_expanded");
 
 			if (!e || !ctr) return;
 
-			if (force || e.offsetTop + e.offsetHeight > (ctr.scrollTop + ctr.offsetHeight) ||
+			if (force || is_expanded || e.offsetTop + e.offsetHeight > (ctr.scrollTop + ctr.offsetHeight) ||
 				e.offsetTop < ctr.scrollTop) {
+
+				if (event && event.repeat || !is_expanded) {
+					ctr.addClassName("forbid-smooth-scroll");
+					window.clearTimeout(this._scroll_reset_timeout);
+
+					this._scroll_reset_timeout = window.setTimeout(() => {
+						if (ctr) ctr.removeClassName("forbid-smooth-scroll");
+					}, 250)
+
+				} else {
+					ctr.removeClassName("forbid-smooth-scroll");
+				}
 
 				ctr.scrollTop = e.offsetTop;
 
@@ -314,19 +330,30 @@ define(["dojo/_base/declare"], function (declare) {
 			else
 				return 0;
 		},
-		scroll: function (offset) {
-			if (!App.isCombinedMode()) {
-				const ci = $("content-insert");
-				if (ci) {
-					ci.scrollTop += offset;
-				}
-			} else {
-				const hi = $("headlines-frame");
-				if (hi) {
-					hi.scrollTop += offset;
-				}
+		scrollByPages: function (page_offset, event) {
+			const elem = App.isCombinedMode() ? $("headlines-frame") : $("content-insert");
 
+			const offset = elem.offsetHeight * page_offset * 0.99;
+
+			this.scroll(offset, event);
+		},
+		scroll: function (offset, event) {
+
+			const elem = App.isCombinedMode() ? $("headlines-frame") : $("content-insert");
+
+			if (event && event.repeat) {
+				elem.addClassName("forbid-smooth-scroll");
+				window.clearTimeout(this._scroll_reset_timeout);
+
+				this._scroll_reset_timeout = window.setTimeout(() => {
+					if (elem) elem.removeClassName("forbid-smooth-scroll");
+				}, 250)
+
+			} else {
+				elem.removeClassName("forbid-smooth-scroll");
 			}
+
+			elem.scrollTop += offset;
 		},
 		mouseIn: function (id) {
 			this.post_under_pointer = id;

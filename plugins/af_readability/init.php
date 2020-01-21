@@ -29,7 +29,8 @@ class Af_Readability extends Plugin {
 	{
 		$this->host = $host;
 
-		if (version_compare(PHP_VERSION, '5.6.0', '<')) {
+		if (version_compare(PHP_VERSION, '7.0.0', '<')) {
+			user_error("af_readability requires PHP 7.0", E_USER_WARNING);
 			return;
 		}
 
@@ -51,8 +52,8 @@ class Af_Readability extends Plugin {
 		print "<div dojoType='dijit.layout.AccordionPane'
 			title=\"<i class='material-icons'>extension</i> ".__('Readability settings (af_readability)')."\">";
 
-		if (version_compare(PHP_VERSION, '5.6.0', '<')) {
-			print_error("This plugin requires PHP version 5.6.");
+		if (version_compare(PHP_VERSION, '7.0.0', '<')) {
+			print_error("This plugin requires PHP 7.0.");
 		} else {
 
 			print "<h2>" . __("Global settings") . "</h2>";
@@ -88,7 +89,7 @@ class Af_Readability extends Plugin {
 			print "</label>";
 			print "</fieldset>";
 
-			print print_button("submit", __("Save"), "class='alt-primary'");
+			print_button("submit", __("Save"), "class='alt-primary'");
 			print "</form>";
 
 			$enabled_feeds = $this->host->get($this, "enabled_feeds");
@@ -179,7 +180,11 @@ class Af_Readability extends Plugin {
 			// this is the worst hack yet :(
 			if (strtolower($tmpdoc->encoding) != 'utf-8') {
 				$tmp = preg_replace("/<meta.*?charset.*?\/?>/i", "", $tmp);
-				$tmp = mb_convert_encoding($tmp, 'utf-8', $tmpdoc->encoding);
+				if (empty($tmpdoc->encoding)) {
+					$tmp = mb_convert_encoding($tmp, 'utf-8');
+				} else {
+					$tmp = mb_convert_encoding($tmp, 'utf-8', $tmpdoc->encoding);
+				}
 			}
 
 			try {

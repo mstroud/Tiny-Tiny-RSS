@@ -572,7 +572,7 @@ class RPC extends Handler_Protected {
 
 	function log() {
 		$msg = clean($_REQUEST['msg']);
-		$file = basename(clean($_REQUEST['file']));
+		$file = clean_filename($_REQUEST['file']);
 		$line = (int) clean($_REQUEST['line']);
 		$context = clean($_REQUEST['context']);
 
@@ -590,15 +590,20 @@ class RPC extends Handler_Protected {
 	function checkforupdates() {
 		$rv = [];
 
-		if (CHECK_FOR_UPDATES && $_SESSION["access_level"] >= 10 && defined("GIT_VERSION_TIMESTAMP")) {
-			$content = @fetch_file_contents(["url" => "https://tt-rss.org/version.json"]);
+		$git_timestamp = false;
+		$git_commit = false;
+
+		get_version($git_commit, $git_timestamp);
+
+		if (defined('CHECK_FOR_UPDATES') && CHECK_FOR_UPDATES && $_SESSION["access_level"] >= 10 && $git_timestamp) {
+			$content = @fetch_file_contents(["url" => "https://srv.tt-rss.org/version.json"]);
 
 			if ($content) {
 				$content = json_decode($content, true);
 
 				if ($content && isset($content["changeset"])) {
-					if ((int)GIT_VERSION_TIMESTAMP < (int)$content["changeset"]["timestamp"] &&
-						GIT_VERSION_HEAD != $content["changeset"]["id"]) {
+					if ($git_timestamp < (int)$content["changeset"]["timestamp"] &&
+						$git_commit != $content["changeset"]["id"]) {
 
 						$rv = $content["changeset"];
 					}

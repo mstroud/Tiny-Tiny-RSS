@@ -1,4 +1,6 @@
 @import "../css/defines.less";
+@import "../css/utility.less";
+@import "../css/zoom.less";
 @import "../lib/flat-ttrss/flat_combined_dark.css";
 
 @color-accent: #b87d2c;
@@ -27,6 +29,15 @@ body.flat.ttrss_main.ttrss_prefs {
 	td.filename,
 	div.prefHelp {
 		color : @fg-text-muted;
+	}
+
+	#filterNewRuleDlg {
+		.invalid {
+			background : #503030;
+		}
+		.valid {
+			background : #305030;
+		}
 	}
 }
 

@@ -305,19 +305,9 @@ class Article extends Handler_Protected {
 				post_int_id = ? AND owner_uid = ?");
 			$sth->execute([$int_id, $_SESSION['uid']]);
 
+			$tags = FeedItem_Common::normalize_categories($tags);
+
 			foreach ($tags as $tag) {
-				$tag = Article::sanitize_tag($tag);
-
-				if (!Article::tag_is_valid($tag)) {
-					continue;
-				}
-
-				if (preg_match("/^[0-9]*$/", $tag)) {
-					continue;
-				}
-
-				//					print "<!-- $id : $int_id : $tag -->";
-
 				if ($tag != '') {
 					$sth = $this->pdo->prepare("INSERT INTO ttrss_tags
 								(post_int_id, owner_uid, tag_name)
@@ -331,7 +321,6 @@ class Article extends Handler_Protected {
 
 			/* update tag cache */
 
-			sort($tags_to_cache);
 			$tags_str = join(",", $tags_to_cache);
 
 			$sth = $this->pdo->prepare("UPDATE ttrss_user_entries
@@ -446,7 +435,7 @@ class Article extends Handler_Protected {
 			foreach ($result as $line) {
 
 				foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_ENCLOSURE_ENTRY) as $plugin) {
-					$line = $plugin->hook_enclosure_entry($line);
+					$line = $plugin->hook_enclosure_entry($line, $id);
 				}
 
 				$url = $line["content_url"];
@@ -673,10 +662,12 @@ class Article extends Handler_Protected {
 
 		$rv = array();
 
+		$cache = new DiskCache("images");
+
 		while ($line = $sth->fetch()) {
 
-			if (file_exists(CACHE_DIR . '/images/' . sha1($line["content_url"]))) {
-				$line["content_url"] = get_self_url_prefix() . '/public.php?op=cached_url&hash=' . sha1($line["content_url"]);
+			if ($cache->exists(sha1($line["content_url"]))) {
+				$line["content_url"] = $cache->getUrl(sha1($line["content_url"]));
 			}
 
 			array_push($rv, $line);
@@ -800,25 +791,73 @@ class Article extends Handler_Protected {
 		return $rv;
 	}
 
-	static function sanitize_tag($tag) {
-		$tag = trim($tag);
+	static function get_article_image($enclosures, $content, $site_url) {
 
-		$tag = mb_strtolower($tag, 'utf-8');
+		$article_image = "";
+		$article_stream = "";
 
-		$tag = preg_replace('/[,\'\"\+\>\<]/', "", $tag);
-
-		if (DB_TYPE == "mysql") {
-			$tag = preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\xEF\xBF\xBD", $tag);
+		foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_ARTICLE_IMAGE) as $p) {
+			list ($article_image, $article_stream, $content) = $p->hook_article_image($enclosures, $content, $site_url);
 		}
 
-		return $tag;
-	}
+		if (!$article_image && !$article_stream) {
+			$tmpdoc = new DOMDocument();
 
-	static function tag_is_valid($tag) {
-		if (!$tag || is_numeric($tag) || mb_strlen($tag) > 250)
-			return false;
+			if (@$tmpdoc->loadHTML('<?xml encoding="UTF-8">' . mb_substr($content, 0, 131070))) {
+				$tmpxpath = new DOMXPath($tmpdoc);
+				$elems = $tmpxpath->query('(//img[@src]|//video[@poster]|//iframe[contains(@src , "youtube.com/embed/")])');
 
-		return true;
+				foreach ($elems as $e) {
+					if ($e->nodeName == "iframe") {
+						$matches = [];
+						if ($rrr = preg_match("/\/embed\/([\w-]+)/", $e->getAttribute("src"), $matches)) {
+							$article_image = "https://img.youtube.com/vi/" . $matches[1] . "/hqdefault.jpg";
+							$article_stream = "https://youtu.be/" . $matches[1];
+							break;
+						}
+					} else if ($e->nodeName == "video") {
+						$article_image = $e->getAttribute("poster");
+
+						$src = $tmpxpath->query("//source[@src]", $e)->item(0);
+
+						if ($src) {
+							$article_stream = $src->getAttribute("src");
+						}
+
+						break;
+					} else if ($e->nodeName == 'img') {
+						if (mb_strpos($e->getAttribute("src"), "data:") !== 0) {
+							$article_image = $e->getAttribute("src");
+						}
+						break;
+					}
+				}
+			}
+
+			if (!$article_image)
+				foreach ($enclosures as $enc) {
+					if (strpos($enc["content_type"], "image/") !== FALSE) {
+						$article_image = $enc["content_url"];
+						break;
+					}
+				}
+
+			if ($article_image)
+				$article_image = rewrite_relative_url($site_url, $article_image);
+
+			if ($article_stream)
+				$article_stream = rewrite_relative_url($site_url, $article_stream);
+		}
+
+		$cache = new DiskCache("images");
+
+		if ($article_image && $cache->exists(sha1($article_image)))
+			$article_image = $cache->getUrl(sha1($article_image));
+
+		if ($article_stream && $cache->exists(sha1($article_stream)))
+			$article_stream = $cache->getUrl(sha1($article_stream));
+
+		return [$article_image, $article_stream];
 	}
 
 }

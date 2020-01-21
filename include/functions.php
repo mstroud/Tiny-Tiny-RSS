@@ -1,6 +1,6 @@
 <?php
 	define('EXPECTED_CONFIG_VERSION', 26);
-	define('SCHEMA_VERSION', 138);
+	define('SCHEMA_VERSION', 139);
 
 	define('LABEL_BASE_INDEX', -1024);
 	define('PLUGIN_FEED_BASE_INDEX', -128);
@@ -26,6 +26,9 @@
 	} else {
 		error_reporting(E_ALL & ~E_NOTICE);
 	}
+
+	ini_set('display_errors', 0);
+	ini_set('display_startup_errors', 0);
 
 	require_once 'config.php';
 
@@ -54,8 +57,6 @@
 	// feed limit for one update batch
 	define_default('DAEMON_SLEEP_INTERVAL', 120);
 	// default sleep interval between feed updates (sec)
-	define_default('MIN_CACHE_FILE_SIZE', 1024);
-	// do not cache files smaller than that (bytes)
 	define_default('MAX_CACHE_FILE_SIZE', 64*1024*1024);
 	// do not cache files larger than that (bytes)
 	define_default('MAX_DOWNLOAD_FILE_SIZE', 16*1024*1024);
@@ -65,6 +66,12 @@
 	define_default('MAX_CONDITIONAL_INTERVAL', 3600*12);
 	// max interval between forced unconditional updates for servers
 	// not complying with http if-modified-since (seconds)
+	// define_default('MAX_FETCH_REQUESTS_PER_HOST', 25);
+	// a maximum amount of allowed HTTP requests per destination host
+	// during a single update (i.e. within PHP process lifetime)
+	// this is used to not cause excessive load on the origin server on
+	// e.g. feed subscription when all articles are being processes
+	// (not implemented)
 
 	/* tunables end here */
 
@@ -148,10 +155,9 @@
 	}
 
 	require_once 'db-prefs.php';
-	require_once 'version.php';
 	require_once 'controls.php';
 
-	define('SELF_USER_AGENT', 'Tiny Tiny RSS/' . VERSION . ' (http://tt-rss.org/)');
+	define('SELF_USER_AGENT', 'Tiny Tiny RSS/' . get_version() . ' (http://tt-rss.org/)');
 	ini_set('user_agent', SELF_USER_AGENT);
 
 	$schema_version = false;
@@ -159,6 +165,12 @@
 	// TODO: compat wrapper, remove at some point
 	function _debug($msg) {
 	    Debug::log($msg);
+	}
+
+	function reset_fetch_domain_quota() {
+		global $fetch_domain_hits;
+
+		$fetch_domain_hits = [];
 	}
 
 	// TODO: max_size currently only works for CURL transfers
@@ -173,6 +185,7 @@
 		global $fetch_last_modified;
 		global $fetch_effective_url;
 		global $fetch_curl_used;
+		global $fetch_domain_hits;
 
 		$fetch_last_error = false;
 		$fetch_last_error_code = -1;
@@ -181,6 +194,9 @@
 		$fetch_curl_used = false;
 		$fetch_last_modified = "";
 		$fetch_effective_url = "";
+
+		if (!is_array($fetch_domain_hits))
+			$fetch_domain_hits = [];
 
 		if (!is_array($options)) {
 
@@ -217,12 +233,21 @@
 		$followlocation = isset($options["followlocation"]) ? $options["followlocation"] : true;
 		$max_size = isset($options["max_size"]) ? $options["max_size"] : MAX_DOWNLOAD_FILE_SIZE; // in bytes
 		$http_accept = isset($options["http_accept"]) ? $options["http_accept"] : false;
+		$http_referrer = isset($options["http_referrer"]) ? $options["http_referrer"] : false;
 
 		$url = ltrim($url, ' ');
 		$url = str_replace(' ', '%20', $url);
 
 		if (strpos($url, "//") === 0)
 			$url = 'http:' . $url;
+
+		$url_host = parse_url($url, PHP_URL_HOST);
+		$fetch_domain_hits[$url_host] += 1;
+
+		/*if ($fetch_domain_hits[$url_host] > MAX_FETCH_REQUESTS_PER_HOST) {
+			user_error("Exceeded fetch request quota for $url_host: " . $fetch_domain_hits[$url_host], E_USER_WARNING);
+			#return false;
+		}*/
 
 		if (!defined('NO_CURL') && function_exists('curl_init') && !ini_get("open_basedir")) {
 
@@ -252,7 +277,9 @@
 			curl_setopt($ch, CURLOPT_USERAGENT, $useragent ? $useragent :
 				SELF_USER_AGENT);
 			curl_setopt($ch, CURLOPT_ENCODING, "");
-			//curl_setopt($ch, CURLOPT_REFERER, $url);
+
+			if  ($http_referrer)
+				curl_setopt($ch, CURLOPT_REFERER, $http_referrer);
 
 			if ($max_size) {
 				curl_setopt($ch, CURLOPT_NOPROGRESS, false);
@@ -379,6 +406,9 @@
 
 			if ($http_accept)
 				array_push($context_options['http']['header'], "Accept: $http_accept");
+
+			if ($http_referrer)
+				array_push($context_options['http']['header'], "Referer: $http_referrer");
 
 			if (defined('_HTTP_PROXY')) {
 				$context_options['http']['request_fulluri'] = true;
@@ -511,7 +541,7 @@
 		return "";
 	}
 
-	function authenticate_user($login, $password, $check_only = false) {
+	function authenticate_user($login, $password, $check_only = false, $service = false) {
 
 		if (!SINGLE_USER_MODE) {
 			$user_id = false;
@@ -519,7 +549,7 @@
 
 			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_AUTH_USER) as $plugin) {
 
-				$user_id = (int) $plugin->authenticate($login, $password);
+				$user_id = (int) $plugin->authenticate($login, $password, $service);
 
 				if ($user_id) {
 					$auth_module = strtolower(get_class($plugin));
@@ -533,7 +563,6 @@
 				session_regenerate_id(true);
 
 				$_SESSION["uid"] = $user_id;
-				$_SESSION["version"] = VERSION_STATIC;
 				$_SESSION["auth_module"] = $auth_module;
 
 				$pdo = DB::pdo();
@@ -592,6 +621,10 @@
 		} else {
 			return $param;
 		}
+	}
+
+	function clean_filename($filename) {
+		return basename(preg_replace("/\.\.|[\/\\\]/", "", clean($filename)));
 	}
 
 	function make_password($length = 12) {
@@ -1011,10 +1044,12 @@
 			__("Navigation") => array(
 				"next_feed" => __("Open next feed"),
 				"prev_feed" => __("Open previous feed"),
-				"next_article" => __("Open next article"),
-				"prev_article" => __("Open previous article"),
-				"next_article_noscroll" => __("Open next article (don't scroll long articles)"),
-				"prev_article_noscroll" => __("Open previous article (don't scroll long articles)"),
+				"next_article_or_scroll" => __("Open next article (in combined mode, scroll down)"),
+				"prev_article_or_scroll" => __("Open previous article (in combined mode, scroll up)"),
+				"next_article_page" => __("Scroll article by one page down"),
+				"prev_article_page" => __("Scroll article by one page up"),
+				"next_article_noscroll" => __("Open next article"),
+				"prev_article_noscroll" => __("Open previous article"),
 				"next_article_noexpand" => __("Move to next article (don't expand or mark read)"),
 				"prev_article_noexpand" => __("Move to previous article (don't expand or mark read)"),
 				"search_dialog" => __("Show search dialog")),
@@ -1028,6 +1063,8 @@
 				"catchup_above" => __("Mark above as read"),
 				"article_scroll_down" => __("Scroll down"),
 				"article_scroll_up" => __("Scroll up"),
+				"article_page_down" => __("Scroll down page"),
+				"article_page_up" => __("Scroll up page"),
 				"select_article_cursor" => __("Select article under cursor"),
 				"email_article" => __("Email article"),
 				"close_article" => __("Close/collapse article"),
@@ -1067,7 +1104,6 @@
 				"create_label" => __("Create label"),
 				"create_filter" => __("Create filter"),
 				"collapse_sidebar" => __("Un/collapse sidebar"),
-				"toggle_night_mode" => __("Toggle night mode"),
 				"help_dialog" => __("Show help dialog"))
 		);
 
@@ -1082,10 +1118,14 @@
 		$hotkeys = array(
 			"k" => "next_feed",
 			"j" => "prev_feed",
-			"n" => "next_article",
-			"p" => "prev_article",
-			"(38)|Up" => "prev_article",
-			"(40)|Down" => "next_article",
+			"n" => "next_article_noscroll",
+			"p" => "prev_article_noscroll",
+			//"(33)|PageUp" => "prev_article_page",
+			//"(34)|PageDown" => "next_article_page",
+			"*(33)|Shift+PgUp" => "article_page_up",
+			"*(34)|Shift+PgDn" => "article_page_down",
+			"(38)|Up" => "prev_article_or_scroll",
+			"(40)|Down" => "next_article_or_scroll",
 			"*(38)|Shift+Up" => "article_scroll_up",
 			"*(40)|Shift+Down" => "article_scroll_down",
 			"^(38)|Ctrl+Up" => "prev_article_noscroll",
@@ -1134,7 +1174,6 @@
 			"c l" => "create_label",
 			"c f" => "create_filter",
 			"c s" => "collapse_sidebar",
-			"a N" => "toggle_night_mode",
 			"?" => "help_dialog",
 		);
 
@@ -1219,76 +1258,16 @@
 	}
 
 	function iframe_whitelisted($entry) {
-		$whitelist = array("youtube.com", "youtu.be", "vimeo.com", "player.vimeo.com");
-
 		@$src = parse_url($entry->getAttribute("src"), PHP_URL_HOST);
 
 		if ($src) {
-			foreach ($whitelist as $w) {
-				if ($src == $w || $src == "www.$w")
+			foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_IFRAME_WHITELISTED) as $plugin) {
+				if ($plugin->hook_iframe_whitelisted($src))
 					return true;
 			}
 		}
 
 		return false;
-	}
-
-	// check for locally cached (media) URLs and rewrite to local versions
-	// this is called separately after sanitize() and plugin render article hooks to allow
-	// plugins work on original source URLs used before caching
-
-	function rewrite_cached_urls($str) {
-		$res = trim($str); if (!$res) return '';
-
-		$doc = new DOMDocument();
-		$doc->loadHTML('<?xml encoding="UTF-8">' . $res);
-		$xpath = new DOMXPath($doc);
-
-		$entries = $xpath->query('(//img[@src]|//picture/source[@src]|//video[@poster]|//video/source[@src]|//audio/source[@src])');
-
-		$need_saving = false;
-
-		foreach ($entries as $entry) {
-
-			if ($entry->hasAttribute('src') || $entry->hasAttribute('poster')) {
-
-				// should be already absolutized because this is called after sanitize()
-				$src = $entry->hasAttribute('poster') ? $entry->getAttribute('poster') : $entry->getAttribute('src');
-				$cached_filename = CACHE_DIR . '/images/' . sha1($src);
-
-				if (file_exists($cached_filename)) {
-
-					// this is strictly cosmetic
-					if ($entry->tagName == 'img') {
-						$suffix = ".png";
-					} else if ($entry->parentNode && $entry->parentNode->tagName == "picture") {
-						$suffix = ".png";
-					} else if ($entry->parentNode && $entry->parentNode->tagName == "video") {
-						$suffix = ".mp4";
-					} else if ($entry->parentNode && $entry->parentNode->tagName == "audio") {
-						$suffix = ".ogg";
-					} else {
-						$suffix = "";
-					}
-
-					$src = get_self_url_prefix() . '/public.php?op=cached_url&hash=' . sha1($src) . $suffix;
-
-					if ($entry->hasAttribute('poster'))
-						$entry->setAttribute('poster', $src);
-					else
-						$entry->setAttribute('src', $src);
-
-					$need_saving = true;
-				}
-			}
-		}
-
-		if ($need_saving) {
-			$doc->removeChild($doc->firstChild); //remove doctype
-			$res = $doc->saveHTML();
-		}
-
-		return $res;
 	}
 
 	function sanitize($str, $force_remove_images = false, $owner = false, $site_url = false, $highlight_words = false, $article_id = false) {
@@ -1315,9 +1294,6 @@
 
 			if ($entry->hasAttribute('src')) {
 				$src = rewrite_relative_url($rewrite_base_url, $entry->getAttribute('src'));
-
-				// cache stuff has gone to rewrite_cached_urls()
-
 				$entry->setAttribute('src', $src);
 			}
 
@@ -1613,7 +1589,7 @@
 		$value = get_pref('USER_STYLESHEET');
 
 		if ($value) {
-			print "<style type=\"text/css\">";
+			print "<style type='text/css' id='user_css_style'>";
 			print str_replace("<br/>", "\n", $value);
 			print "</style>";
 		}
@@ -1908,4 +1884,67 @@
 		}
 
 		return $ts;
+	}
+
+	/* for package maintainers who don't use git: if version_static.txt exists in tt-rss root
+		directory, its contents are displayed instead of git commit-based version, this could be generated
+		based on source git tree commit used when creating the package */
+
+	function get_version(&$git_commit = false, &$git_timestamp = false, &$last_error = false) {
+		global $ttrss_version;
+
+		if (is_array($ttrss_version) && isset($ttrss_version['version'])) {
+			$git_commit = $ttrss_version['commit'];
+			$git_timestamp = $ttrss_version['timestamp'];
+			$last_error = $ttrss_version['last_error'];
+
+			return $ttrss_version['version'];
+		} else {
+			$ttrss_version = [];
+		}
+
+		$ttrss_version['version'] = "UNKNOWN (Unsupported)";
+
+		date_default_timezone_set('UTC');
+		$root_dir = dirname(dirname(__FILE__));
+
+		if ('\\' === DIRECTORY_SEPARATOR) {
+			$ttrss_version['version'] = "UNKNOWN (Unsupported, Windows)";
+		} else if (PHP_OS === "Darwin") {
+			$ttrss_version['version'] = "UNKNOWN (Unsupported, Darwin)";
+		} else if (file_exists("$root_dir/version_static.txt")) {
+			$ttrss_version['version'] = trim(file_get_contents("$root_dir/version_static.txt")) . " (Unsupported)";
+		} else if (is_dir("$root_dir/.git")) {
+			$rc = 0;
+			$output = [];
+
+			$cwd = getcwd();
+
+			chdir($root_dir);
+			exec('git --no-pager log --pretty='.escapeshellarg('version: %ct %h').' -n1 HEAD 2>&1', $output, $rc);
+			chdir($cwd);
+
+			if (is_array($output) && count($output) > 0) {
+				list ($test, $timestamp, $commit) = explode(" ", $output[0], 3);
+
+				if ($test == "version:") {
+					$git_commit = $commit;
+					$git_timestamp = $timestamp;
+
+					$ttrss_version['version'] = strftime("%y.%m", $timestamp) . "-$commit";
+					$ttrss_version['commit'] = $commit;
+					$ttrss_version['timestamp'] = $timestamp;
+				}
+			}
+
+			if (!isset($ttrss_version['commit'])) {
+				$last_error = "Unable to determine version (using $root_dir): RC=$rc; OUTPUT=" . implode("\n", $output);
+
+				$ttrss_version["last_error"] = $last_error;
+
+				user_error($last_error, E_USER_WARNING);
+			}
+		}
+
+		return $ttrss_version['version'];
 	}

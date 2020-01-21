@@ -2,6 +2,8 @@
 require_once "colors.php";
 
 class Feeds extends Handler_Protected {
+	const NEVER_GROUP_FEEDS = [ -6, 0 ];
+	const NEVER_GROUP_BY_DATE = [ -2, -1, -3 ];
 
     private $params;
 
@@ -49,7 +51,9 @@ class Feeds extends Handler_Protected {
 		if ($error)
 			$reply .= " <i title=\"" . htmlspecialchars($error) . "\" class='material-icons icon-error'>error</i>";
 
-		$reply .= "</span></span>";
+		$reply .= "</span>";
+		$reply .= "<span id='feed_current_unread' style='display: none'></span>";
+		$reply .= "</span>";
 
 		$reply .= "<span class=\"right\">";
 		$reply .= "<span id='selected_prompt'></span>";
@@ -199,7 +203,8 @@ class Feeds extends Handler_Protected {
 			$qfh_ret = $this->queryFeedHeadlines($params);
 		}
 
-		$vfeed_group_enabled = get_pref("VFEED_GROUP_BY_FEED") && $feed != -6;
+		$vfeed_group_enabled = get_pref("VFEED_GROUP_BY_FEED") &&
+			!(in_array($feed, Feeds::NEVER_GROUP_FEEDS) && !$cat_view);
 
 		$result = $qfh_ret[0]; // this could be either a PDO query result or a -1 if first id changed
 		$feed_title = $qfh_ret[1];
@@ -307,7 +312,7 @@ class Feeds extends Handler_Protected {
                     $line = $p->hook_render_article_cdm($line);
                 }
 
-                $line['content'] = rewrite_cached_urls($line['content']);
+                $line['content'] = DiskCache::rewriteUrls($line['content']);
 
                 if ($line['note'])
                     $line['note'] = Article::format_article_note($id, $line['note']);
@@ -786,16 +791,25 @@ class Feeds extends Handler_Protected {
 		<!DOCTYPE html>
 		<html>
 		<head>
-			<?php echo stylesheet_tag("css/default.css") ?>
 			<title>Feed Debugger</title>
+			<style type='text/css'>
+				@media (prefers-color-scheme: dark) {
+					body {
+						background : #222;
+					}
+				}
+				body.css_loading * {
+					display : none;
+				}
+			</style>
 			<?php
-				echo stylesheet_tag("css/default.css");
 				echo javascript_tag("lib/prototype.js");
+				echo javascript_tag("js/utility.js");
 				echo javascript_tag("lib/dojo/dojo.js");
 				echo javascript_tag("lib/dojo/tt-rss-layer.js");
 			?>
 		</head>
-		<body class="flat ttrss_utility feed_debugger">
+		<body class="flat ttrss_utility feed_debugger css_loading">
 		<script type="text/javascript">
 			require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
 				'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'],function(parser, ready){
@@ -1438,7 +1452,7 @@ class Feeds extends Handler_Protected {
 		$start_ts = isset($params["start_ts"]) ? $params["start_ts"] : false;
 		$check_first_id = isset($params["check_first_id"]) ? $params["check_first_id"] : false;
 		$skip_first_id_check = isset($params["skip_first_id_check"]) ? $params["skip_first_id_check"] : false;
-		$order_by = isset($params["order_by"]) ? $params["order_by"] : false;
+		//$order_by = isset($params["order_by"]) ? $params["order_by"] : false;
 
 		$ext_tables_part = "";
 		$limit_query_part = "";
@@ -1693,12 +1707,18 @@ class Feeds extends Handler_Protected {
 		if (is_numeric($feed)) {
 			// proper override_order applied above
 			if ($vfeed_query_part && !$ignore_vfeed_group && get_pref('VFEED_GROUP_BY_FEED', $owner_uid)) {
-                $yyiw_desc = $order_by == "date_reverse" ? "" : "desc";
+
+				if (!(in_array($feed, Feeds::NEVER_GROUP_BY_DATE) && !$cat_view)) {
+					$yyiw_desc = $order_by == "date_reverse" ? "" : "desc";
+					$yyiw_order_qpart = "yyiw $yyiw_desc, ";
+				} else {
+					$yyiw_order_qpart = "";
+				}
 
 				if (!$override_order) {
-					$order_by = "yyiw $yyiw_desc, ttrss_feeds.title, ".$order_by;
+					$order_by = "$yyiw_order_qpart ttrss_feeds.title, $order_by";
 				} else {
-					$order_by = "yyiw $yyiw_desc, ttrss_feeds.title, ".$override_order;
+					$order_by = "$yyiw_order_qpart ttrss_feeds.title, $override_order";
 				}
 			}
 
@@ -1915,7 +1935,7 @@ class Feeds extends Handler_Protected {
         $sum = 0;
 
         for ($i = 0; $i < strlen($name); $i++) {
-            $sum += ord($name{$i});
+            $sum += ord($name[$i]);
         }
 
         $sum %= count($colormap);
