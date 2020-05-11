@@ -65,15 +65,6 @@ body.ttrss_main {
 				max-width : 98%;
 				height: auto;
 			}
-
-			p {
-				hyphens: auto;
-			}
-
-			iframe {
-				min-width : 50%;
-				max-width : 98%;
-			}
 		}
 	}
 
@@ -646,15 +637,20 @@ body.ttrss_main {
 			text-rendering: optimizelegibility;
 			font-family : @fonts-ui;
 
-			.counterNode.aux {
+			.counterNode.aux, .counterNode.marked {
 				background : @color-panel-bg;
 				color : lighten(@default-text, 10%);
 				border-color : darken(@color-panel-bg, 10%);
 			}
 
+			.counterNode.marked {
+				border-color : @color-accent-marked;
+				background : lighten(@color-accent-marked, 60%);
+			}
+
 			.counterNode {
 				font-weight : bold;
-				display : inline-block;
+				display : none;
 				font-size : 9px;
 				text-align : center;
 				border : 1px solid lighten(@color-accent, 5%);;
@@ -1013,6 +1009,27 @@ body.ttrss_main {
 		height : auto;
 		width : auto;
 	}
+
+	.dijitTooltipContents {
+		background : @color-tooltip-bg;
+		color : @color-tooltip-fg;
+	}
+
+	.dijitTooltipRight .dijitTooltipConnector {
+		border-right-color : @color-tooltip-bg;
+	}
+
+	.dijitTooltipLeft .dijitTooltipConnector {
+		border-left-color : @color-tooltip-bg;
+	}
+
+	.dijitTooltipBelow .dijitTooltipConnector {
+		border-bottom-color : @color-tooltip-bg;
+	}
+
+	.dijitTooltipAbove .dijitTooltipConnector {
+		border-top-color : @color-tooltip-bg;
+	}
 }
 
 body.ttrss_main .dijitDialog {
@@ -1022,6 +1039,45 @@ body.ttrss_main .dijitDialog {
 	h4:first-of-type {
 		margin-top: 0px;
 	}
+}
+
+body.ttrss_main[view-mode="marked"] #feeds-holder #feedTree {
+	.dijitTreeRow.Has_Marked .dijitTreeLabel {
+		color : @color-accent-marked;
+	}
+	.dijitTreeRow.Has_Marked .counterNode.marked {
+		display : inline-block;
+	}
+}
+
+body.ttrss_main[view-mode="marked"][hide-read-feeds="true"][hide-read-shows-special="true"] #feeds-holder #feedTree
+	.dijitTreeRow:not(.AlwaysVisible):not(.Special):not(.Has_Marked) {
+		display : none;
+}
+
+body.ttrss_main[view-mode="marked"][hide-read-feeds="true"][hide-read-shows-special="false"] #feeds-holder #feedTree
+	.dijitTreeRow:not(.AlwaysVisible):not(.Has_Marked) {
+		display : none;
+}
+
+
+body.ttrss_main:not([view-mode="marked"]) #feeds-holder #feedTree {
+	.dijitTreeRow.Unread .counterNode.unread {
+		display : inline-block;
+	}
+	.dijitTreeRow.Has_Aux:not(.Unread) .counterNode.aux {
+		display : inline-block;
+	}
+}
+
+body.ttrss_main:not([view-mode="marked"])[hide-read-feeds="true"][hide-read-shows-special="true"] #feeds-holder #feedTree
+	.dijitTreeRow:not(.Unread):not(.AlwaysVisible):not(.Special) {
+		display : none;
+}
+
+body.ttrss_main:not([view-mode="marked"])[hide-read-feeds="true"][hide-read-shows-special="false"] #feeds-holder #feedTree
+	.dijitTreeRow:not(.Unread):not(.AlwaysVisible) {
+		display : none;
 }
 
 body.ttrss_main {

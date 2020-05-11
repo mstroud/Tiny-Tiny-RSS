@@ -469,7 +469,7 @@ class RSSUtils {
 			foreach ($pluginhost->get_hooks(PluginHost::HOOK_FEED_PARSED) as $plugin) {
 				Debug::log("... " . get_class($plugin), Debug::$LOG_VERBOSE);
 				$start = microtime(true);
-				$plugin->hook_feed_parsed($rss);
+				$plugin->hook_feed_parsed($rss, $feed);
 				Debug::log(sprintf("=== %.4f (sec)", microtime(true) - $start), Debug::$LOG_VERBOSE);
 			}
 
@@ -1032,6 +1032,11 @@ class RSSUtils {
 
 				if (is_array($encs)) {
 					foreach ($encs as $e) {
+
+						foreach ($pluginhost->get_hooks(PluginHost::HOOK_ENCLOSURE_IMPORTED) as $plugin) {
+							$e = $plugin->hook_enclosure_imported($e, $feed);
+						}
+
 						$e_item = array(
 							rewrite_relative_url($site_url, $e->link),
 							$e->type, $e->length, $e->title, $e->width, $e->height);
@@ -1221,6 +1226,32 @@ class RSSUtils {
 		}
 	}
 
+	static function cache_media_url($cache, $url, $site_url) {
+		$url = rewrite_relative_url($site_url, $url);
+		$local_filename = sha1($url);
+
+		Debug::log("cache_media: checking $url", Debug::$LOG_VERBOSE);
+
+		if (!$cache->exists($local_filename)) {
+			Debug::log("cache_media: downloading: $url to $local_filename", Debug::$LOG_VERBOSE);
+
+			global $fetch_last_error_code;
+			global $fetch_last_error;
+
+			$file_content = fetch_file_contents(array("url" => $url,
+				"http_referrer" => $url,
+				"max_size" => MAX_CACHE_FILE_SIZE));
+
+			if ($file_content) {
+				$cache->put($local_filename, $file_content);
+			} else {
+				Debug::log("cache_media: failed with $fetch_last_error_code: $fetch_last_error");
+			}
+		} else if ($cache->isWritable($local_filename)) {
+			$cache->touch($local_filename);
+		}
+	}
+
 	static function cache_media($html, $site_url) {
 		$cache = new DiskCache("images");
 
@@ -1229,33 +1260,24 @@ class RSSUtils {
 			if ($doc->loadHTML($html)) {
 				$xpath = new DOMXPath($doc);
 
-				$entries = $xpath->query('(//img[@src])|(//video/source[@src])|(//audio/source[@src])');
+				$entries = $xpath->query('(//img[@src]|//source[@src|@srcset]|//video[@poster|@src])');
 
 				foreach ($entries as $entry) {
-					if ($entry->hasAttribute('src') && strpos($entry->getAttribute('src'), "data:") !== 0) {
-						$src = rewrite_relative_url($site_url, $entry->getAttribute('src'));
+					foreach (array('src', 'poster') as $attr) {
+						if ($entry->hasAttribute($attr) && strpos($entry->getAttribute($attr), "data:") !== 0) {
+							RSSUtils::cache_media_url($cache, $entry->getAttribute($attr), $site_url);
+						}
+					}
 
-						$local_filename = sha1($src);
+					if ($entry->hasAttribute("srcset")) {
+						$tokens = explode(",", $entry->getAttribute('srcset'));
 
-						Debug::log("cache_media: checking $src", Debug::$LOG_VERBOSE);
+						for ($i = 0; $i < count($tokens); $i++) {
+							$token = trim($tokens[$i]);
 
-						if (!$cache->exists($local_filename)) {
-							Debug::log("cache_media: downloading: $src to $local_filename", Debug::$LOG_VERBOSE);
+							list ($url, $width) = explode(" ", $token, 2);
 
-							global $fetch_last_error_code;
-							global $fetch_last_error;
-
-							$file_content = fetch_file_contents(array("url" => $src,
-								"http_referrer" => $src,
-								"max_size" => MAX_CACHE_FILE_SIZE));
-
-							if ($file_content) {
-								$cache->put($local_filename, $file_content);
-							} else {
-								Debug::log("cache_media: failed with $fetch_last_error_code: $fetch_last_error");
-							}
-						} else if ($cache->isWritable($local_filename)) {
-							$cache->touch($local_filename);
+							RSSUtils::cache_media_url($cache, $url, $site_url);
 						}
 					}
 				}
@@ -1343,6 +1365,7 @@ class RSSUtils {
 			foreach ($filter["rules"] as $rule) {
 				$match = false;
 				$reg_exp = str_replace('/', '\/', $rule["reg_exp"]);
+				$reg_exp = str_replace("\n", "", $reg_exp); // reg_exp may be formatted with CRs now because of textarea, we need to strip those
 				$rule_inverse = $rule["inverse"];
 
 				if (!$reg_exp)
@@ -1469,26 +1492,12 @@ class RSSUtils {
 			mb_strtolower(strip_tags($title), 'utf-8'));
 	}
 
+	/* counter cache is no longer used, if called truncate leftover data */
 	static function cleanup_counters_cache() {
 		$pdo = Db::pdo();
 
-		$res = $pdo->query("DELETE FROM ttrss_counters_cache
-			WHERE feed_id > 0 AND
-			(SELECT COUNT(id) FROM ttrss_feeds WHERE
-				id = feed_id AND
-				ttrss_counters_cache.owner_uid = ttrss_feeds.owner_uid) = 0");
-
-		$frows = $res->rowCount();
-
-		$res = $pdo->query("DELETE FROM ttrss_cat_counters_cache
-			WHERE feed_id > 0 AND
-			(SELECT COUNT(id) FROM ttrss_feed_categories WHERE
-				id = feed_id AND
-				ttrss_cat_counters_cache.owner_uid = ttrss_feed_categories.owner_uid) = 0");
-
-		$crows = $res->rowCount();
-
-		Debug::log("Removed $frows (feeds) $crows (cats) orphaned counter cache entries.");
+		$pdo->query("DELETE FROM ttrss_counters_cache");
+		$pdo->query("DELETE FROM ttrss_cat_counters_cache");
 	}
 
 	static function housekeeping_user($owner_uid) {

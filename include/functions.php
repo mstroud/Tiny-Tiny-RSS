@@ -731,24 +731,7 @@
 			if ($_SESSION["uid"]) {
 				startup_gettext();
 				load_user_plugins($_SESSION["uid"]);
-
-				/* cleanup ccache */
-
-				$sth = $pdo->prepare("DELETE FROM ttrss_counters_cache WHERE owner_uid = ?
-					AND
-						(SELECT COUNT(id) FROM ttrss_feeds WHERE
-							ttrss_feeds.id = feed_id) = 0");
-
-				$sth->execute([$_SESSION['uid']]);
-
-				$sth = $pdo->prepare("DELETE FROM ttrss_cat_counters_cache WHERE owner_uid = ?
-					AND
-						(SELECT COUNT(id) FROM ttrss_feed_categories WHERE
-							ttrss_feed_categories.id = feed_id) = 0");
-
-				$sth->execute([$_SESSION['uid']]);
 			}
-
 		}
 	}
 
@@ -1050,9 +1033,10 @@
 				"prev_article_page" => __("Scroll article by one page up"),
 				"next_article_noscroll" => __("Open next article"),
 				"prev_article_noscroll" => __("Open previous article"),
-				"next_article_noexpand" => __("Move to next article (don't expand or mark read)"),
-				"prev_article_noexpand" => __("Move to previous article (don't expand or mark read)"),
-				"search_dialog" => __("Show search dialog")),
+				"next_article_noexpand" => __("Move to next article (don't expand)"),
+				"prev_article_noexpand" => __("Move to previous article (don't expand)"),
+				"search_dialog" => __("Show search dialog"),
+				"cancel_search" => __("Cancel active search")),
 			__("Article") => array(
 				"toggle_mark" => __("Toggle starred"),
 				"toggle_publ" => __("Toggle published"),
@@ -1070,7 +1054,7 @@
 				"close_article" => __("Close/collapse article"),
 				"toggle_expand" => __("Toggle article expansion (combined mode)"),
 				"toggle_widescreen" => __("Toggle widescreen mode"),
-				"toggle_embed_original" => __("Toggle embed original")),
+				"toggle_full_text" => __("Toggle full article text via Readability")),
 			__("Article selection") => array(
 				"select_all" => __("Select all articles"),
 				"select_unread" => __("Select unread"),
@@ -1131,6 +1115,7 @@
 			"^(38)|Ctrl+Up" => "prev_article_noscroll",
 			"^(40)|Ctrl+Down" => "next_article_noscroll",
 			"/" => "search_dialog",
+			"\\" => "cancel_search",
 			"s" => "toggle_mark",
 			"S" => "toggle_publ",
 			"u" => "toggle_unread",
@@ -1141,7 +1126,7 @@
 			"N" => "article_scroll_down",
 			"P" => "article_scroll_up",
 			"a W" => "toggle_widescreen",
-			"a e" => "toggle_embed_original",
+			"a e" => "toggle_full_text",
 			"e" => "email_article",
 			"a q" => "close_article",
 			"a a" => "select_all",
@@ -1281,7 +1266,7 @@
 
 		$rewrite_base_url = $site_url ? $site_url : get_self_url_prefix();
 
-		$entries = $xpath->query('(//a[@href]|//img[@src]|//video/source[@src]|//audio/source[@src]|//picture/source[@src])');
+		$entries = $xpath->query('(//a[@href]|//img[@src]|//source[@srcset|@src])');
 
 		foreach ($entries as $entry) {
 
@@ -1290,33 +1275,33 @@
 					rewrite_relative_url($rewrite_base_url, $entry->getAttribute('href')));
 
 				$entry->setAttribute('rel', 'noopener noreferrer');
+				$entry->setAttribute("target", "_blank");
 			}
 
 			if ($entry->hasAttribute('src')) {
-				$src = rewrite_relative_url($rewrite_base_url, $entry->getAttribute('src'));
-				$entry->setAttribute('src', $src);
+				$entry->setAttribute('src',
+					rewrite_relative_url($rewrite_base_url, $entry->getAttribute('src')));
 			}
 
 			if ($entry->nodeName == 'img') {
 				$entry->setAttribute('referrerpolicy', 'no-referrer');
+				$entry->setAttribute('loading', 'lazy');
+			}
 
-				$entry->removeAttribute('width');
-				$entry->removeAttribute('height');
+			if ($entry->hasAttribute('srcset')) {
+				$tokens = explode(",", $entry->getAttribute('srcset'));
 
-				if ($entry->hasAttribute('src')) {
-					$is_https_url = parse_url($entry->getAttribute('src'), PHP_URL_SCHEME) === 'https';
+				for ($i = 0; $i < count($tokens); $i++) {
+					$token = trim($tokens[$i]);
 
-					if (is_prefix_https() && !$is_https_url) {
+					list ($url, $width) = explode(" ", $token, 2);
 
-						if ($entry->hasAttribute('srcset')) {
-							$entry->removeAttribute('srcset');
-						}
+					$url = rewrite_relative_url($rewrite_base_url, $url);
 
-						if ($entry->hasAttribute('sizes')) {
-							$entry->removeAttribute('sizes');
-						}
-					}
+					$tokens[$i] = "$url $width";
 				}
+
+				$entry->setAttribute("srcset", implode(", ", $tokens));
 			}
 
 			if ($entry->hasAttribute('src') &&
@@ -1339,16 +1324,9 @@
 						$entry->parentNode->parentNode->replaceChild($p, $entry->parentNode);
 
 				} else if ($entry->nodeName == 'img') {
-
 					if ($entry->parentNode)
 						$entry->parentNode->replaceChild($p, $entry);
-
 				}
-			}
-
-			if (strtolower($entry->nodeName) == "a") {
-				$entry->setAttribute("target", "_blank");
-				$entry->setAttribute("rel", "noopener noreferrer");
 			}
 		}
 
@@ -1379,7 +1357,7 @@
 
 		if ($_SESSION['hasSandbox']) $allowed_elements[] = 'iframe';
 
-		$disallowed_attributes = array('id', 'style', 'class');
+		$disallowed_attributes = array('id', 'style', 'class', 'width', 'height', 'allow');
 
 		foreach (PluginHost::getInstance()->get_hooks(PluginHost::HOOK_SANITIZE) as $plugin) {
 			$retval = $plugin->hook_sanitize($doc, $site_url, $allowed_elements, $disallowed_attributes, $article_id);
@@ -1395,7 +1373,7 @@
 		$doc->removeChild($doc->firstChild); //remove doctype
 		$doc = strip_harmful_tags($doc, $allowed_elements, $disallowed_attributes);
 
-		if ($highlight_words) {
+		if ($highlight_words && is_array($highlight_words)) {
 			foreach ($highlight_words as $word) {
 
 				// http://stackoverflow.com/questions/4081372/highlight-keywords-in-a-paragraph
@@ -1769,9 +1747,6 @@
 	}
 
 	function get_theme_path($theme) {
-		if ($theme == "default.php")
-			return "css/default.css";
-
 		$check = "themes/$theme";
 		if (file_exists($check)) return $check;
 
@@ -1788,6 +1763,7 @@
 	 */
 	function error_json($code) {
 		require_once "errors.php";
+		global $ERRORS;
 
 		@$message = $ERRORS[$code];
 
@@ -1908,9 +1884,7 @@
 		date_default_timezone_set('UTC');
 		$root_dir = dirname(dirname(__FILE__));
 
-		if ('\\' === DIRECTORY_SEPARATOR) {
-			$ttrss_version['version'] = "UNKNOWN (Unsupported, Windows)";
-		} else if (PHP_OS === "Darwin") {
+		if (PHP_OS === "Darwin") {
 			$ttrss_version['version'] = "UNKNOWN (Unsupported, Darwin)";
 		} else if (file_exists("$root_dir/version_static.txt")) {
 			$ttrss_version['version'] = trim(file_get_contents("$root_dir/version_static.txt")) . " (Unsupported)";
@@ -1921,7 +1895,7 @@
 			$cwd = getcwd();
 
 			chdir($root_dir);
-			exec('git --no-pager log --pretty='.escapeshellarg('version: %ct %h').' -n1 HEAD 2>&1', $output, $rc);
+			exec('git --no-pager log --pretty="version: %ct %h" -n1 HEAD 2>&1', $output, $rc);
 			chdir($cwd);
 
 			if (is_array($output) && count($output) > 0) {

@@ -185,9 +185,9 @@ define(["dojo/_base/declare"], function (declare) {
 
 							Headlines.toggleUnread(id, 0);
 						} else {
-						//Article.cdmScrollToId(id);
+							//Article.cdmMoveToId(id);
 						}
-						Article.cdmScrollToId(id, true); // Greader-style click scrolling
+						Article.cdmMoveToId(id, {noscroll: true}); // Greader-style click scrolling
 					} else if (in_body) {
 						Headlines.toggleUnread(id, 0);
 					} else { /* !in body */
@@ -333,7 +333,7 @@ define(["dojo/_base/declare"], function (declare) {
 							ft.setAttribute("data-article-id", id);
 							ft.innerHTML = header.innerHTML;
 
-							ft.select(".dijitCheckBox")[0].outerHTML = "<i class=\"material-icons icon-anchor\" onclick=\"Article.cdmScrollToId(" + id + ", true)\">expand_more</i>";
+							ft.select(".dijitCheckBox")[0].outerHTML = "<i class=\"material-icons icon-anchor\" onclick=\"Article.cdmMoveToId(" + id + ")\">expand_more</i>";
 
 							this.initFloatingMenu();
 
@@ -385,8 +385,22 @@ define(["dojo/_base/declare"], function (declare) {
 		objectById: function (id){
 			return this.headlines[id];
 		},
+		setCommonClasses: function() {
+			$("headlines-frame").removeClassName("cdm");
+			$("headlines-frame").removeClassName("normal");
+
+			$("headlines-frame").addClassName(App.isCombinedMode() ? "cdm" : "normal");
+
+			// for floating title because it's placed outside of headlines-frame
+			$("main").removeClassName("expandable");
+			$("main").removeClassName("expanded");
+
+			if (App.isCombinedMode())
+				$("main").addClassName(App.getInitParam("cdm_expanded") ? " expanded" : " expandable");
+		},
 		renderAgain: function() {
 			// TODO: wrap headline elements into a knockoutjs model to prevent all this stuff
+			Headlines.setCommonClasses();
 
 			$$("#headlines-frame > div[id*=RROW]").each((row) => {
 				const id = row.getAttribute("data-article-id");
@@ -401,7 +415,7 @@ define(["dojo/_base/declare"], function (declare) {
 						new_row.addClassName("active");
 
 						if (App.isCombinedMode())
-							Article.cdmScrollToId(id);
+							Article.cdmMoveToId(id, {noscroll: true});
 						else
 							Article.view(id);
 					}
@@ -598,23 +612,11 @@ define(["dojo/_base/declare"], function (declare) {
 					Feeds.infscroll_disabled = parseInt(headlines_count) != 30;
 					console.log('infscroll_disabled=', Feeds.infscroll_disabled);
 
-					// TODO: the below needs to be applied again when switching expanded/expandable on the fly
-					// via hotkeys, not just on feed load
-
-					$("headlines-frame").removeClassName("cdm");
-					$("headlines-frame").removeClassName("normal");
-
-					$("headlines-frame").addClassName(App.isCombinedMode() ? "cdm" : "normal");
+					// also called in renderAgain() after view mode switch
+					Headlines.setCommonClasses();
 
 					$("headlines-frame").setAttribute("is-vfeed",
 						reply['headlines']['is_vfeed'] ? 1 : 0);
-
-					// for floating title because it's placed outside of headlines-frame
-					$("main").removeClassName("expandable");
-					$("main").removeClassName("expanded");
-
-					if (App.isCombinedMode())
-						$("main").addClassName(App.getInitParam("cdm_expanded") ? " expanded" : " expandable");
 
 					Article.setActive(0);
 
@@ -882,11 +884,11 @@ define(["dojo/_base/declare"], function (declare) {
 						//const row = $("RROW-" + Article.getActive());
 						const ctr = $("headlines-frame");
 
-						if (!noscroll) {
-							Article.scroll(ctr.offsetHeight / 2, event);
-						} else if (next_id) {
+						if (noscroll) {
 							Article.setActive(next_id);
-							Article.cdmScrollToId(next_id, true, event);
+							Article.cdmMoveToId(next_id, { event: event, noscroll: noscroll });
+						} else if (next_id) {
+							Article.scroll(ctr.offsetHeight / 2, event);
 						}
 
 					} else if (next_id) {
@@ -904,15 +906,15 @@ define(["dojo/_base/declare"], function (declare) {
 						//const prev_row = $("RROW-" + prev_id);
 						const ctr = $("headlines-frame");
 
-						if (!noscroll) {
-							Article.scroll(-ctr.offsetHeight / 2, event);
-						} else {
+						if (noscroll) {
 							if (row && Math.round(row.offsetTop) < Math.round(ctr.scrollTop)) {
-								Article.cdmScrollToId(Article.getActive(), noscroll, event);
+								Article.cdmMoveToId(Article.getActive(), { force: noscroll, event: event });
 							} else if (prev_id) {
 								Article.setActive(prev_id);
-								Article.cdmScrollToId(prev_id, noscroll, event);
+								Article.cdmMoveToId(prev_id, { force: noscroll, event: event, noscroll: noscroll });
 							}
+						} else {
+							Article.scroll(-ctr.offsetHeight / 2, event);
 						}
 
 					} else if (prev_id) {

@@ -64,7 +64,7 @@ class Auth_Internal extends Plugin implements IAuthModule {
 								<title>Tiny Tiny RSS</title>
 								<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 							</head>
-							<?php echo stylesheet_tag("css/default.css") ?>
+							<?php echo stylesheet_tag("themes/light.css") ?>
 						<body class="ttrss_utility otp">
 						<h1><?php echo __("Authentication") ?></h1>
 						<div class="content">
@@ -235,11 +235,9 @@ class Auth_Internal extends Plugin implements IAuthModule {
 			if ($row = $sth->fetch()) {
 				$mailer = new Mailer();
 
-				require_once "lib/MiniTemplator.class.php";
+				$tpl = new Templator();
 
-				$tpl = new MiniTemplator;
-
-				$tpl->readTemplateFromFile("templates/password_change_template.txt");
+				$tpl->readTemplateFromFile("password_change_template.txt");
 
 				$tpl->setVariable('LOGIN', $row["login"]);
 				$tpl->setVariable('TTRSS_HOST', SELF_URL_PATH);

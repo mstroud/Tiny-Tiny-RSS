@@ -457,8 +457,6 @@ class Feeds extends Handler_Protected {
 		$sth = $this->pdo->prepare("UPDATE ttrss_user_entries SET
 						last_read = NOW(), unread = false WHERE unread = true AND owner_uid = ?");
 		$sth->execute([$_SESSION['uid']]);
-
-		CCache::zero_all($_SESSION["uid"]);
 	}
 
 	function view() {
@@ -510,13 +508,6 @@ class Feeds extends Handler_Protected {
 		if ($sth && !$sth->fetch()) {
 			print json_encode($this->generate_error_feed(__("Feed not found.")));
 			return;
-		}
-
-		/* Updating a label ccache means recalculating all of the caches
-		 * so for performance reasons we don't do that here */
-
-		if ($feed >= 0) {
-			CCache::update($feed, $_SESSION["uid"], $cat_view);
 		}
 
 		set_pref("_DEFAULT_VIEW_MODE", $view_mode);
@@ -1013,8 +1004,6 @@ class Feeds extends Handler_Protected {
 
 			}
 
-			CCache::update($feed, $owner_uid, $cat_view);
-
 		} else { // tag
 			$sth = $pdo->prepare("UPDATE ttrss_user_entries
 				SET unread = false, last_read = NOW() WHERE ref_id IN
@@ -1301,6 +1290,30 @@ class Feeds extends Handler_Protected {
 		}
 	}
 
+	// only real cats
+	static function getCategoryMarked($cat, $owner_uid = false) {
+
+		if (!$owner_uid) $owner_uid = $_SESSION["uid"];
+
+		$pdo = Db::pdo();
+
+		if ($cat >= 0) {
+
+			$sth = $pdo->prepare("SELECT SUM(CASE WHEN marked THEN 1 ELSE 0 END) AS marked
+				FROM ttrss_user_entries
+				WHERE feed_id IN (SELECT id FROM ttrss_feeds
+                    WHERE (cat_id = :cat OR (:cat IS NULL AND cat_id IS NULL))
+					AND owner_uid = :uid)
+				AND owner_uid = :uid");
+			$sth->execute(["cat" => $cat ? $cat : null, "uid" => $owner_uid]);
+			$row = $sth->fetch();
+
+			return $row["marked"];
+		} else {
+			return 0;
+		}
+	}
+
 	static function getCategoryUnread($cat, $owner_uid = false) {
 
 		if (!$owner_uid) $owner_uid = $_SESSION["uid"];
@@ -1309,46 +1322,25 @@ class Feeds extends Handler_Protected {
 
 		if ($cat >= 0) {
 
-		    if (!$cat) $cat = null;
-
-			$sth = $pdo->prepare("SELECT id FROM ttrss_feeds
-                    WHERE (cat_id = :cat OR (:cat IS NULL AND cat_id IS NULL))
-					AND owner_uid = :uid");
-
-			$sth->execute([":cat" => $cat, ":uid" => $owner_uid]);
-
-			$cat_feeds = array();
-			while ($line = $sth->fetch()) {
-				array_push($cat_feeds, "feed_id = " . (int)$line["id"]);
-			}
-
-			if (count($cat_feeds) == 0) return 0;
-
-			$match_part = implode(" OR ", $cat_feeds);
-
-			$sth = $pdo->prepare("SELECT COUNT(int_id) AS unread
+			$sth = $pdo->prepare("SELECT SUM(CASE WHEN unread THEN 1 ELSE 0 END) AS unread
 				FROM ttrss_user_entries
-				WHERE	unread = true AND ($match_part)
-				AND owner_uid = ?");
-			$sth->execute([$owner_uid]);
+				WHERE feed_id IN (SELECT id FROM ttrss_feeds
+                    WHERE (cat_id = :cat OR (:cat IS NULL AND cat_id IS NULL))
+					AND owner_uid = :uid)
+				AND owner_uid = :uid");
+			$sth->execute(["cat" => $cat ? $cat : null, "uid" => $owner_uid]);
+			$row = $sth->fetch();
 
-			$unread = 0;
+			return $row["unread"];
 
-			# this needs to be rewritten
-			while ($line = $sth->fetch()) {
-				$unread += $line["unread"];
-			}
-
-			return $unread;
 		} else if ($cat == -1) {
-			return getFeedUnread(-1) + getFeedUnread(-2) + getFeedUnread(-3) + getFeedUnread(0);
+			return 0;
 		} else if ($cat == -2) {
 
-			$sth = $pdo->prepare("SELECT COUNT(unread) AS unread FROM
-					ttrss_user_entries, ttrss_user_labels2
-				WHERE article_id = ref_id AND unread = true
-					AND ttrss_user_entries.owner_uid = ?");
-			$sth->execute([$owner_uid]);
+			$sth = $pdo->prepare("SELECT COUNT(DISTINCT article_id) AS unread 
+				FROM ttrss_user_entries ue, ttrss_user_labels2 l
+				WHERE article_id = ref_id AND unread IS true AND ue.owner_uid = :uid");
+			$sth->execute(["uid" => $owner_uid]);
             $row = $sth->fetch();
 
 			return $row["unread"];
@@ -1381,12 +1373,14 @@ class Feeds extends Handler_Protected {
 
 		$pdo = Db::pdo();
 
-		$sth = $pdo->prepare("SELECT SUM(value) AS c_id FROM ttrss_counters_cache
-			WHERE owner_uid = ? AND feed_id > 0");
+		$sth = $pdo->prepare("SELECT SUM(CASE WHEN unread THEN 1 ELSE 0 END) AS count 
+			FROM ttrss_user_entries ue 
+			WHERE ue.owner_uid = ?");
+
 		$sth->execute([$user_id]);
 		$row = $sth->fetch();
 
-		return $row["c_id"];
+		return $row["count"];
 	}
 
 	static function getCategoryTitle($cat_id) {
@@ -2116,9 +2110,6 @@ class Feeds extends Handler_Protected {
 		}
 
 		if ($purge_interval == -1 || !$purge_interval) {
-			if ($owner_uid) {
-				CCache::update($feed_id, $owner_uid);
-			}
 			return;
 		}
 
@@ -2162,8 +2153,6 @@ class Feeds extends Handler_Protected {
 		}
 
 		$rows = $sth->rowCount();
-
-		CCache::update($feed_id, $owner_uid);
 
 		Debug::log("Purged feed $feed_id ($purge_interval): deleted $rows articles");
 
@@ -2278,6 +2267,24 @@ class Feeds extends Handler_Protected {
 						if (!$not) array_push($search_words, $k);
 					}
 					break;
+				case "label":
+					if ($commandpair[1]) {
+						$label_id = Labels::find_id($commandpair[1], $_SESSION["uid"]);
+
+						if ($label_id) {
+							array_push($query_keywords, "($not 
+								(ttrss_entries.id IN (
+									SELECT article_id FROM ttrss_user_labels2 WHERE 
+										label_id = ".$pdo->quote($label_id).")))");
+						} else {
+							array_push($query_keywords, "(false)");
+						}
+					} else {
+						array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER(".$pdo->quote("%$k%").")
+								OR UPPER(ttrss_entries.content) $not LIKE UPPER(".$pdo->quote("%$k%")."))");
+						if (!$not) array_push($search_words, $k);
+					}
+					break;
 				case "unread":
 					if ($commandpair[1]) {
 						if ($commandpair[1] == "true")
@@ -2334,7 +2341,10 @@ class Feeds extends Handler_Protected {
 
 		}
 
-		$search_query_part = implode("AND", $query_keywords);
+		if (count($query_keywords) > 0)
+			$search_query_part = implode("AND", $query_keywords);
+		else
+			$search_query_part = "false";
 
 		return array($search_query_part, $search_words);
 	}

@@ -56,6 +56,7 @@ require(["dojo/_base/kernel",
 	"fox/FeedStoreModel",
 	"fox/FeedTree",
 	"fox/Toolbar",
+	"fox/form/ValidationTextArea",
 	"fox/form/Select",
 	"fox/form/ComboButton",
 	"fox/form/DropDownButton"], function (dojo, declare, ready, parser, AppBase) {
@@ -197,6 +198,10 @@ require(["dojo/_base/kernel",
 					document.title = tmp;
 				},
 				onViewModeChanged: function() {
+					const view_mode = document.forms["toolbar-main"].view_mode.value;
+
+					$$("body")[0].setAttribute("view-mode", view_mode);
+
 					return Feeds.reloadCurrent('');
 				},
 				isCombinedMode: function() {
@@ -206,8 +211,8 @@ require(["dojo/_base/kernel",
 					if (event.target.nodeName == "INPUT" || event.target.nodeName == "TEXTAREA") return;
 
 					// Arrow buttons and escape are not reported via keypress, handle them via keydown.
-					// escape = 27, left = 37, up = 38, right = 39, down = 40, pgup = 33, pgdn = 34
-					if (event.type == "keydown" && event.which != 27 && (event.which < 33 || event.which > 40)) return;
+					// escape = 27, left = 37, up = 38, right = 39, down = 40, pgup = 33, pgdn = 34, insert = 45, delete = 46
+					if (event.type == "keydown" && event.which != 27 && (event.which < 33 || event.which > 46)) return;
 
 					const action_name = App.keyeventToAction(event);
 
@@ -299,6 +304,9 @@ require(["dojo/_base/kernel",
 					};
 					this.hotkey_actions["search_dialog"] = function () {
 						Feeds.search();
+					};
+					this.hotkey_actions["cancel_search"] = function () {
+						Feeds.cancelSearch();
 					};
 					this.hotkey_actions["toggle_mark"] = function () {
 						Headlines.selectionToggleMarked();
@@ -472,12 +480,12 @@ require(["dojo/_base/kernel",
 					this.hotkey_actions["collapse_sidebar"] = function () {
 						Feeds.toggle();
 					};
-					this.hotkey_actions["toggle_embed_original"] = function () {
-						if (typeof embedOriginalArticle != "undefined") {
+					this.hotkey_actions["toggle_full_text"] = function () {
+						if (typeof Plugins.Af_Readability != "undefined") {
 							if (Article.getActive())
-								embedOriginalArticle(Article.getActive());
+								Plugins.Af_Readability.embed(Article.getActive());
 						} else {
-							alert(__("Please enable embed_original plugin first."));
+							alert(__("Please enable af_readability first."));
 						}
 					};
 					this.hotkey_actions["toggle_widescreen"] = function () {

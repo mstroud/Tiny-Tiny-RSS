@@ -1,10 +1,12 @@
+/* TODO: this should probably be something like night_mode.js since it does nothing specific to utility scripts */2
+
 Event.observe(window, "load", function() {
     const UtilityJS = {
         apply_night_mode: function (is_night, link) {
             console.log("night mode changed to", is_night);
 
             if (link) {
-                const css_override = is_night ? "themes/night.css" : "css/default.css";
+                const css_override = is_night ? "themes/night.css" : "themes/light.css";
 
                 link.setAttribute("href", css_override + "?" + Date.now());
             }
@@ -19,6 +21,9 @@ Event.observe(window, "load", function() {
 
             link.onload = function() {
                 document.querySelector("body").removeClassName("css_loading");
+
+                if (typeof UtilityApp != "undefined")
+                    UtilityApp.init();
             };
 
             try {

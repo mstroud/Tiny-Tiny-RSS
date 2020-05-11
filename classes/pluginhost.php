@@ -1,6 +1,9 @@
 <?php
 class PluginHost {
 	private $pdo;
+	/* separate handle for plugin data so transaction while saving wouldn't clash with possible main
+		tt-rss code transactions; only initialized when first needed */
+	private $pdo_data;
 	private $hooks = array();
 	private $plugins = array();
 	private $handlers = array();
@@ -62,6 +65,7 @@ class PluginHost {
 	const HOOK_ARTICLE_IMAGE = 42;
 	const HOOK_FEED_TREE = 43;
 	const HOOK_IFRAME_WHITELISTED = 44;
+	const HOOK_ENCLOSURE_IMPORTED = 45;
 
 	const KIND_ALL = 1;
 	const KIND_SYSTEM = 2;
@@ -73,7 +77,6 @@ class PluginHost {
 
 	function __construct() {
 		$this->pdo = Db::pdo();
-
 		$this->storage = array();
 	}
 
@@ -361,9 +364,13 @@ class PluginHost {
 
 	private function save_data($plugin) {
 		if ($this->owner_uid) {
-			$this->pdo->beginTransaction();
 
-			$sth = $this->pdo->prepare("SELECT id FROM ttrss_plugin_storage WHERE
+			if (!$this->pdo_data)
+				$this->pdo_data = Db::instance()->pdo_connect();
+
+			$this->pdo_data->beginTransaction();
+
+			$sth = $this->pdo_data->prepare("SELECT id FROM ttrss_plugin_storage WHERE
 				owner_uid= ? AND name = ?");
 			$sth->execute([$this->owner_uid, $plugin]);
 
@@ -373,18 +380,18 @@ class PluginHost {
 			$content = serialize($this->storage[$plugin]);
 
 			if ($sth->fetch()) {
-				$sth = $this->pdo->prepare("UPDATE ttrss_plugin_storage SET content = ?
+				$sth = $this->pdo_data->prepare("UPDATE ttrss_plugin_storage SET content = ?
 					WHERE owner_uid= ? AND name = ?");
 				$sth->execute([(string)$content, $this->owner_uid, $plugin]);
 
 			} else {
-				$sth = $this->pdo->prepare("INSERT INTO ttrss_plugin_storage
+				$sth = $this->pdo_data->prepare("INSERT INTO ttrss_plugin_storage
 					(name,owner_uid,content) VALUES
 					(?, ?, ?)");
 				$sth->execute([$plugin, $this->owner_uid, (string)$content]);
 			}
 
-			$this->pdo->commit();
+			$this->pdo_data->commit();
 		}
 	}
 

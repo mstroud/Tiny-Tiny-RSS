@@ -5,8 +5,6 @@ class Handler_Public extends Handler {
 		$limit, $offset, $search,
 		$view_mode = false, $format = 'atom', $order = false, $orig_guid = false, $start_ts = false) {
 
-		require_once "lib/MiniTemplator.class.php";
-
 		$note_style = 	"background-color : #fff7d5;
 			border-width : 1px; ".
 			"padding : 5px; border-style : dashed; border-color : #e7d796;".
@@ -80,9 +78,9 @@ class Handler_Public extends Handler {
 		if (!$feed_site_url) $feed_site_url = get_self_url_prefix();
 
 		if ($format == 'atom') {
-			$tpl = new MiniTemplator;
+			$tpl = new Templator();
 
-			$tpl->readTemplateFromFile("templates/generated_feed.txt");
+			$tpl->readTemplateFromFile("generated_feed.txt");
 
 			$tpl->setVariable('FEED_TITLE', $feed_title, true);
 			$tpl->setVariable('VERSION', get_version(), true);
@@ -523,28 +521,43 @@ class Handler_Public extends Handler {
 		<head>
 			<title><?php echo __("Share with Tiny Tiny RSS") ?></title>
 			<?php
-			echo stylesheet_tag("css/default.css");
 			echo javascript_tag("lib/prototype.js");
 			echo javascript_tag("lib/dojo/dojo.js");
+			echo javascript_tag("js/utility.js");
 			echo javascript_tag("lib/dojo/tt-rss-layer.js");
 			echo javascript_tag("lib/scriptaculous/scriptaculous.js?load=effects,controls")
 			?>
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 			<link rel="shortcut icon" type="image/png" href="images/favicon.png">
 			<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png">
-		</head>
-		<body class='flat ttrss_utility share_popup'>
-		<script type="text/javascript">
-			require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
-				'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'],function(parser, ready){
-				ready(function() {
-					parser.parse();
+			<style type="text/css">
+				@media (prefers-color-scheme: dark) {
+					body {
+						background : #303030;
+					}
+				}
 
-					new Ajax.Autocompleter('labels_value', 'labels_choices',
-						"backend.php?op=rpc&method=completeLabels",
-						{ tokens: ',', paramName: "search" });
-				});
-			});
+				body.css_loading * {
+					display : none;
+				}
+			</style>
+		</head>
+		<body class='flat ttrss_utility share_popup css_loading'>
+		<script type="text/javascript">
+			const UtilityApp = {
+				init: function() {
+				  	require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
+						'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'], function(parser, ready){
+						ready(function() {
+							parser.parse();
+
+							new Ajax.Autocompleter('labels_value', 'labels_choices',
+								"backend.php?op=rpc&method=completeLabels",
+								{ tokens: ',', paramName: "search" });
+							});
+				  	});
+				}
+			};
 		</script>
 		<div class="content">
 
@@ -731,23 +744,38 @@ class Handler_Public extends Handler {
 			<head>
 				<title>Tiny Tiny RSS</title>
 				<?php
-					echo stylesheet_tag("css/default.css");
 					echo javascript_tag("lib/prototype.js");
+					echo javascript_tag("js/utility.js");
 					echo javascript_tag("lib/dojo/dojo.js");
 					echo javascript_tag("lib/dojo/tt-rss-layer.js");
 				?>
 				<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 				<link rel="shortcut icon" type="image/png" href="images/favicon.png">
 				<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png">
+				<style type="text/css">
+					@media (prefers-color-scheme: dark) {
+						body {
+							background : #303030;
+						}
+					}
+
+					body.css_loading * {
+						display : none;
+					}
+				</style>
 			</head>
-			<body class='flat ttrss_utility'>
+			<body class='flat ttrss_utility css_loading'>
 			<script type="text/javascript">
-				require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
-					'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'],function(parser, ready){
-					ready(function() {
-						parser.parse();
-					});
-				});
+				const UtilityApp = {
+					init: function() {
+                        require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'dijit/form/Form',
+                            'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'], function(parser, ready){
+                            ready(function() {
+                                parser.parse();
+                            });
+                        });
+					}
+				};
 			</script>
 			<div class="container">
 			<h1><?php echo __("Subscribe to feed...") ?></h1>
@@ -873,7 +901,7 @@ class Handler_Public extends Handler {
 			<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png">
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 			<?php
-				echo stylesheet_tag("css/default.css");
+				echo stylesheet_tag("themes/light.css");
 				echo javascript_tag("lib/prototype.js");
 				echo javascript_tag("lib/dojo/dojo.js");
 				echo javascript_tag("lib/dojo/tt-rss-layer.js");
@@ -1000,11 +1028,9 @@ class Handler_Public extends Handler {
 						$resetpass_link = get_self_url_prefix() . "/public.php?op=forgotpass&hash=" . $resetpass_token .
 							"&login=" . urlencode($login);
 
-						require_once "lib/MiniTemplator.class.php";
+						$tpl = new Templator();
 
-						$tpl = new MiniTemplator;
-
-						$tpl->readTemplateFromFile("templates/resetpass_link_template.txt");
+						$tpl->readTemplateFromFile("resetpass_link_template.txt");
 
 						$tpl->setVariable('LOGIN', $login);
 						$tpl->setVariable('RESETPASS_LINK', $resetpass_link);
@@ -1074,11 +1100,11 @@ class Handler_Public extends Handler {
 			<head>
 			<title>Database Updater</title>
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-			<?php echo stylesheet_tag("css/default.css") ?>
+			<?php echo stylesheet_tag("themes/light.css") ?>
 			<link rel="shortcut icon" type="image/png" href="images/favicon.png">
 			<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png">
 			<?php
-				echo stylesheet_tag("css/default.css");
+				echo stylesheet_tag("themes/light.css");
 				echo javascript_tag("lib/prototype.js");
 				echo javascript_tag("lib/dojo/dojo.js");
 				echo javascript_tag("lib/dojo/tt-rss-layer.js");

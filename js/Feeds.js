@@ -58,7 +58,6 @@ define(["dojo/_base/declare"], function (declare) {
 				const error = elems[l].error;
 				const has_img = elems[l].has_img;
 				const updated = elems[l].updated;
-				const auxctr = parseInt(elems[l].auxcounter);
 
 				if (id == "global-unread") {
 					App.global_unread = ctr;
@@ -76,7 +75,8 @@ define(["dojo/_base/declare"], function (declare) {
 				}*/
 
 				this.setUnread(id, (kind == "cat"), ctr);
-				this.setValue(id, (kind == "cat"), 'auxcounter', auxctr);
+				this.setValue(id, (kind == "cat"), 'auxcounter', parseInt(elems[l].auxcounter));
+				this.setValue(id, (kind == "cat"), 'markedcounter', parseInt(elems[l].markedcounter));
 
 				if (kind != "cat") {
 					this.setValue(id, false, 'error', error);
@@ -221,6 +221,9 @@ define(["dojo/_base/declare"], function (declare) {
 			if (App.getInitParam("is_default_pw")) {
 				console.warn("user password is at default value");
 
+				if (dijit.byId("defaultPasswordDlg"))
+					dijit.byId("defaultPasswordDlg").destroyRecursive();
+
 				const dialog = new dijit.Dialog({
 					title: __("Your password is at default value"),
 					href: "backend.php?op=dlg&method=defaultpasswordwarning",
@@ -285,11 +288,14 @@ define(["dojo/_base/declare"], function (declare) {
 				App.setInitParam("hide_read_feeds", hide);
 			});
 		},
-		hideOrShowFeeds: function(hide) {
-			const tree = dijit.byId("feedTree");
+		hideOrShowFeeds: function (hide) {
+			/*const tree = dijit.byId("feedTree");
 
 			if (tree)
-				return tree.hideRead(hide, App.getInitParam("hide_read_shows_special"));
+				return tree.hideRead(hide, App.getInitParam("hide_read_shows_special"));*/
+
+			$$("body")[0].setAttribute("hide-read-feeds", !!hide);
+			$$("body")[0].setAttribute("hide-read-shows-special", !!App.getInitParam("hide_read_shows_special"));
 		},
 		open: function(params) {
 			const feed = params.feed;
