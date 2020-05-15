@@ -187,7 +187,7 @@ define(["dojo/_base/declare"], function (declare) {
 						} else {
 							//Article.cdmMoveToId(id);
 						}
-						Article.cdmMoveToId(id, {noscroll: true}); // Greader-style click scrolling
+						Article.cdmMoveToId(id); // Greader-style click scrolling
 					} else if (in_body) {
 						Headlines.toggleUnread(id, 0);
 					} else { /* !in body */
