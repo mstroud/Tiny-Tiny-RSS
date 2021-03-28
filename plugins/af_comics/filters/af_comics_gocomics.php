@@ -11,7 +11,7 @@ class Af_Comics_Gocomics extends Af_ComicFilter {
 
 	public function on_subscribe($url) {
 		if (preg_match('#^https?://www\.gocomics\.com/([-a-z0-9]+)$#i', $url))
-			return '<?xml version="1.0" encoding="utf-8"?>'; // Get is_html() to return false.
+			return '<?xml version="1.0" encoding="utf-8"?>'; // Get _is_html() to return false.
 		else
 			return false;
 	}
@@ -29,7 +29,7 @@ class Af_Comics_Gocomics extends Af_ComicFilter {
 
 			$article_link = $site_url . date('/Y/m/d');
 
-			$body = fetch_file_contents(array('url' => $article_link, 'type' => 'text/html', 'followlocation' => false));
+			$body = UrlHelper::fetch(array('url' => $article_link, 'type' => 'text/html', 'followlocation' => false));
 
 			$feed_title = htmlspecialchars($comic[1]);
 			$site_url = htmlspecialchars($site_url);
@@ -40,7 +40,7 @@ class Af_Comics_Gocomics extends Af_ComicFilter {
 			$tpl->readTemplateFromFile('templates/generated_feed.txt');
 
 			$tpl->setVariable('FEED_TITLE', $feed_title, true);
-			$tpl->setVariable('VERSION', get_version(), true);
+			$tpl->setVariable('VERSION', Config::get_version(), true);
 			$tpl->setVariable('FEED_URL', htmlspecialchars($url), true);
 			$tpl->setVariable('SELF_URL', $site_url, true);
 

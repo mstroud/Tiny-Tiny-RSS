@@ -1,26 +1,17 @@
 #!/usr/bin/env php
 <?php
-	set_include_path(dirname(__FILE__) ."/include" . PATH_SEPARATOR .
+	set_include_path(__DIR__ ."/include" . PATH_SEPARATOR .
 		get_include_path());
 
 	declare(ticks = 1);
-	chdir(dirname(__FILE__));
+	chdir(__DIR__);
 
 	define('DISABLE_SESSIONS', true);
 
 	require_once "autoload.php";
 	require_once "functions.php";
-	require_once "config.php";
 
-	// defaults
-	define_default('PURGE_INTERVAL', 3600); // seconds
-	define_default('MAX_CHILD_RUNTIME', 1800); // seconds
-	define_default('MAX_JOBS', 2);
-	define_default('SPAWN_INTERVAL', DAEMON_SLEEP_INTERVAL); // seconds
-
-	require_once "sanity_check.php";
-	require_once "db.php";
-	require_once "db-prefs.php";
+	Config::sanity_check();
 
 	if (!function_exists('pcntl_fork')) {
 		die("error: This script requires PHP compiled with PCNTL module.\n");
@@ -58,12 +49,12 @@
 				if (file_is_locked("update_daemon-$pid.lock")) {
 					array_push($tmp, $pid);
 				} else {
-					Debug::log("[reap_children] child $pid seems active but lockfile is unlocked.");
+					Debug::log("Child process with PID $pid seems active but lockfile is unlocked.");
 					unset($ctimes[$pid]);
 
 				}
 			} else {
-				Debug::log("[reap_children] child $pid reaped.");
+				Debug::log("Child process with PID $pid reaped.");
 				unset($ctimes[$pid]);
 			}
 		}
@@ -79,8 +70,8 @@
 		foreach (array_keys($ctimes) as $pid) {
 			$started = $ctimes[$pid];
 
-			if (time() - $started > MAX_CHILD_RUNTIME) {
-				Debug::log("[MASTER] child process $pid seems to be stuck, aborting...");
+			if (time() - $started > Config::get(Config::DAEMON_MAX_CHILD_RUNTIME)) {
+				Debug::log("Child process with PID $pid seems to be stuck, aborting...");
 				posix_kill($pid, SIGKILL);
 			}
 		}
@@ -92,16 +83,16 @@
 	function sigchld_handler($signal) {
 		$running_jobs = reap_children();
 
-		Debug::log("[SIGCHLD] jobs left: $running_jobs");
+		Debug::log("Received SIGCHLD, $running_jobs active tasks left.");
 
 		pcntl_waitpid(-1, $status, WNOHANG);
 	}
 
 	function shutdown($caller_pid) {
 		if ($caller_pid == posix_getpid()) {
-			if (file_exists(LOCK_DIRECTORY . "/update_daemon.lock")) {
-				Debug::log("removing lockfile (master)...");
-				unlink(LOCK_DIRECTORY . "/update_daemon.lock");
+			if (file_exists(Config::get(Config::LOCK_DIRECTORY) . "/update_daemon.lock")) {
+				Debug::log("Removing lockfile (master)...");
+				unlink(Config::get(Config::LOCK_DIRECTORY) . "/update_daemon.lock");
 			}
 		}
 	}
@@ -109,20 +100,20 @@
 	function task_shutdown() {
 		$pid = posix_getpid();
 
-		if (file_exists(LOCK_DIRECTORY . "/update_daemon-$pid.lock")) {
-			Debug::log("removing lockfile ($pid)...");
-			unlink(LOCK_DIRECTORY . "/update_daemon-$pid.lock");
+		if (file_exists(Config::get(Config::LOCK_DIRECTORY) . "/update_daemon-$pid.lock")) {
+			Debug::log("Removing task lockfile for PID $pid...");
+			unlink(Config::get(Config::LOCK_DIRECTORY) . "/update_daemon-$pid.lock");
 		}
 	}
 
 	function sigint_handler() {
-		Debug::log("[MASTER] SIG_INT received.\n");
+		Debug::log("[MASTER] SIG_INT received, shutting down master process.");
 		shutdown(posix_getpid());
 		die;
 	}
 
 	function task_sigint_handler() {
-		Debug::log("[TASK] SIG_INT received.\n");
+		Debug::log("[TASK] SIG_INT received, shutting down task.");
 		task_shutdown();
 		die;
 	}
@@ -144,9 +135,9 @@
 		print "  --log FILE           - log messages to FILE\n";
         print "  --log-level N        - log verbosity level\n";
 		print "  --tasks N            - amount of update tasks to spawn\n";
-		print "                         default: " . MAX_JOBS . "\n";
+		print "                         default: " . Config::get(Config::DAEMON_MAX_JOBS) . "\n";
 		print "  --interval N         - task spawn interval\n";
-		print "                         default: " . SPAWN_INTERVAL . " seconds.\n";
+		print "                         default: " . Config::get(Config::DAEMON_SLEEP_INTERVAL) . " seconds.\n";
 		print "  --quiet              - don't output messages to stdout\n";
 		return;
 	}
@@ -171,14 +162,14 @@
 		Debug::log("Set to spawn " . $options["tasks"] . " children.");
 		$max_jobs = $options["tasks"];
 	} else {
-		$max_jobs = MAX_JOBS;
+		$max_jobs = Config::get(Config::DAEMON_MAX_JOBS);
 	}
 
 	if (isset($options["interval"])) {
 		Debug::log("Spawn interval: " . $options["interval"] . " seconds.");
 		$spawn_interval = $options["interval"];
 	} else {
-		$spawn_interval = SPAWN_INTERVAL;
+		$spawn_interval = Config::get(Config::DAEMON_SLEEP_INTERVAL);
 	}
 
 	// let's enforce a minimum spawn interval as to not forkbomb the host
@@ -198,9 +189,7 @@
 			"Maybe another daemon is already running.\n");
 	}
 
-	$schema_version = get_schema_version();
-
-	if ($schema_version != SCHEMA_VERSION) {
+	if (Config::is_migration_needed()) {
 		die("Schema version is wrong, please upgrade the database.\n");
 	}
 
@@ -215,7 +204,7 @@
 
 		if ($next_spawn % 60 == 0) {
 			$running_jobs = count($children);
-			Debug::log("[MASTER] active jobs: $running_jobs, next spawn at $next_spawn sec.");
+			Debug::log("$running_jobs active tasks, next spawn at $next_spawn sec.");
 		}
 
 		if ($last_checkpoint + $spawn_interval < time()) {
@@ -229,14 +218,14 @@
 				} else if ($pid) {
 
 					if (!$master_handlers_installed) {
-						Debug::log("[MASTER] installing shutdown handlers");
+						Debug::log("Installing shutdown handlers");
 						pcntl_signal(SIGINT, 'sigint_handler');
 						pcntl_signal(SIGTERM, 'sigint_handler');
 						register_shutdown_function('shutdown', posix_getpid());
 						$master_handlers_installed = true;
 					}
 
-					Debug::log("[MASTER] spawned client $j [PID:$pid]...");
+					Debug::log("Spawned child process with PID $pid for task $j.");
 					array_push($children, $pid);
 					$ctimes[$pid] = time();
 				} else {
@@ -250,7 +239,7 @@
 
 					$my_pid = posix_getpid();
 
-					passthru(PHP_EXECUTABLE . " update.php --daemon-loop $quiet $log --task $j --pidlock $my_pid");
+					passthru(Config::get(Config::PHP_EXECUTABLE) . " update.php --daemon-loop $quiet $log --task $j --pidlock $my_pid");
 
 					sleep(1);
 

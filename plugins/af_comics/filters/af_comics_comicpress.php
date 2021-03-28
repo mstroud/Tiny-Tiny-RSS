@@ -7,23 +7,23 @@ class Af_Comics_ComicPress extends Af_ComicFilter {
 	}
 
 	function process(&$article) {
-		if (strpos($article["guid"], "bunicomic.com") !== FALSE ||
-				strpos($article["guid"], "buttersafe.com") !== FALSE ||
-				strpos($article["guid"], "extrafabulouscomics.com") !== FALSE ||
-				strpos($article["guid"], "happyjar.com") !== FALSE ||
-				strpos($article["guid"], "nedroid.com") !== FALSE ||
-				strpos($article["guid"], "stonetoss.com") !== FALSE ||
-				strpos($article["guid"], "csectioncomics.com") !== FALSE) {
+		if (strpos($article["guid"], "bunicomic.com") !== false ||
+				strpos($article["guid"], "buttersafe.com") !== false ||
+				strpos($article["guid"], "extrafabulouscomics.com") !== false ||
+				strpos($article["guid"], "happyjar.com") !== false ||
+				strpos($article["guid"], "nedroid.com") !== false ||
+				strpos($article["guid"], "stonetoss.com") !== false ||
+				strpos($article["guid"], "csectioncomics.com") !== false) {
 
 				// lol at people who block clients by user agent
 				// oh noes my ad revenue Q_Q
 
-				$res = fetch_file_contents(["url" => $article["link"],
+				$res = UrlHelper::fetch(["url" => $article["link"],
 					"useragent" => "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; WOW64; Trident/6.0)"]);
 
 				$doc = new DOMDocument();
 
-				if (@$doc->loadHTML($res)) {
+				if ($res && $doc->loadHTML($res)) {
 					$xpath = new DOMXPath($doc);
 					$basenode = $xpath->query('//div[@id="comic"]')->item(0);
 
@@ -37,7 +37,7 @@ class Af_Comics_ComicPress extends Af_ComicFilter {
 
 					if ($webtoon_link) {
 
-						$res = fetch_file_contents(["url" => $webtoon_link->getAttribute("href"),
+						$res = UrlHelper::fetch(["url" => $webtoon_link->getAttribute("href"),
 							"useragent" => "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; WOW64; Trident/6.0)"]);
 
 						if (@$doc->loadHTML($res)) {

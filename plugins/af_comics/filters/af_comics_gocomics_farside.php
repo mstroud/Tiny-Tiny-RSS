@@ -11,7 +11,7 @@ class Af_Comics_Gocomics_FarSide extends Af_ComicFilter {
 
 	public function on_subscribe($url) {
 		if (preg_match("#^https?://www\.thefarside\.com#", $url))
-			return '<?xml version="1.0" encoding="utf-8"?>'; // Get is_html() to return false.
+			return '<?xml version="1.0" encoding="utf-8"?>'; // Get _is_html() to return false.
 		else
 			return false;
 	}
@@ -33,11 +33,11 @@ class Af_Comics_Gocomics_FarSide extends Af_ComicFilter {
 			$tpl->readTemplateFromFile('templates/generated_feed.txt');
 
 			$tpl->setVariable('FEED_TITLE', "The Far Side", true);
-			$tpl->setVariable('VERSION', get_version(), true);
+			$tpl->setVariable('VERSION', Config::get_version(), true);
 			$tpl->setVariable('FEED_URL', htmlspecialchars($url), true);
 			$tpl->setVariable('SELF_URL', htmlspecialchars($url), true);
 
-			$body = fetch_file_contents(['url' => $article_link, 'type' => 'text/html', 'followlocation' => false]);
+			$body = UrlHelper::fetch(['url' => $article_link, 'type' => 'text/html', 'followlocation' => false]);
 
 			if ($body) {
 				$doc = new DOMDocument();

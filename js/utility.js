@@ -1,6 +1,8 @@
-/* TODO: this should probably be something like night_mode.js since it does nothing specific to utility scripts */2
+/* global UtilityApp */
 
-Event.observe(window, "load", function() {
+/* TODO: this should probably be something like night_mode.js since it does nothing specific to utility scripts */
+
+window.addEventListener("load", function() {
     const UtilityJS = {
         apply_night_mode: function (is_night, link) {
             console.log("night mode changed to", is_night);
@@ -14,10 +16,10 @@ Event.observe(window, "load", function() {
         setup_night_mode: function() {
             const mql = window.matchMedia('(prefers-color-scheme: dark)');
 
-            const link = new Element("link", {
-                rel: "stylesheet",
-                id: "theme_auto_css"
-            });
+            const link = document.createElement("link");
+
+            link.rel = "stylesheet";
+            link.id = "theme_auto_css";
 
             link.onload = function() {
                 document.querySelector("body").removeClassName("css_loading");

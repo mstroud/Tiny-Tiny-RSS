@@ -1,50 +1,62 @@
 <?php
 class Debug {
-	public static $LOG_DISABLED = -1;
-    public static $LOG_NORMAL = 0;
-    public static $LOG_VERBOSE = 1;
-    public static $LOG_EXTENDED = 2;
+	const LOG_DISABLED = -1;
+    const LOG_NORMAL = 0;
+    const LOG_VERBOSE = 1;
+    const LOG_EXTENDED = 2;
+
+	/** @deprecated */
+	public static $LOG_DISABLED = self::LOG_DISABLED;
+
+	/** @deprecated */
+    public static $LOG_NORMAL = self::LOG_NORMAL;
+
+	/** @deprecated */
+    public static $LOG_VERBOSE = self::LOG_VERBOSE;
+
+	/** @deprecated */
+    public static $LOG_EXTENDED = self::LOG_EXTENDED;
 
     private static $enabled = false;
     private static $quiet = false;
     private static $logfile = false;
-    private static $loglevel = 0;
+    private static $loglevel = self::LOG_NORMAL;
 
 	public static function set_logfile($logfile) {
-        Debug::$logfile = $logfile;
+        self::$logfile = $logfile;
     }
 
     public static function enabled() {
-        return Debug::$enabled;
+        return self::$enabled;
     }
 
     public static function set_enabled($enable) {
-        Debug::$enabled = $enable;
+        self::$enabled = $enable;
     }
 
     public static function set_quiet($quiet) {
-        Debug::$quiet = $quiet;
+        self::$quiet = $quiet;
     }
 
     public static function set_loglevel($level) {
-        Debug::$loglevel = $level;
+        self::$loglevel = $level;
     }
 
     public static function get_loglevel() {
-        return Debug::$loglevel;
+        return self::$loglevel;
     }
 
-    public static function log($message, $level = 0) {
+    public static function log($message, int $level = 0) {
 
-        if (!Debug::$enabled || Debug::$loglevel < $level) return false;
+        if (!self::$enabled || self::$loglevel < $level) return false;
 
         $ts = strftime("%H:%M:%S", time());
         if (function_exists('posix_getpid')) {
             $ts = "$ts/" . posix_getpid();
         }
 
-        if (Debug::$logfile) {
-            $fp = fopen(Debug::$logfile, 'a+');
+        if (self::$logfile) {
+            $fp = fopen(self::$logfile, 'a+');
 
             if ($fp) {
                 $locked = false;
@@ -60,7 +72,7 @@ class Debug {
 
                     if (!$locked) {
                         fclose($fp);
-                        user_error("Unable to lock debugging log file: " . Debug::$logfile, E_USER_WARNING);
+                        user_error("Unable to lock debugging log file: " . self::$logfile, E_USER_WARNING);
                         return;
                     }
                 }
@@ -73,11 +85,11 @@ class Debug {
 
                 fclose($fp);
 
-                if (Debug::$quiet)
+                if (self::$quiet)
                     return;
 
             } else {
-                user_error("Unable to open debugging log file: " . Debug::$logfile, E_USER_WARNING);
+                user_error("Unable to open debugging log file: " . self::$logfile, E_USER_WARNING);
             }
         }
 
