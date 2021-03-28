@@ -249,20 +249,19 @@ const Headlines = {
 							Article.openInNewWindow(id);
 
 						Headlines.toggleUnread(id, 0);
-						Article.cdmMoveToId(id, {force_to_top: true});
+						Article.cdmMoveToId(id, {force_to_top: true}); // GREADER scroll behavior
 					} else {
 						const scroll_position_B = App.byId(`RROW-${id}`).offsetTop - App.byId("headlines-frame").scrollTop;
 
 						// this would only work if there's enough space
 						App.byId("headlines-frame").scrollTop -= scroll_position_A-scroll_position_B;
 
-						//Article.cdmMoveToId(id);
-						Article.cdmMoveToId(id, {force_to_top: true});
+						//Article.cdmMoveToId(id);                     // GREADER scroll behavior
+						Article.cdmMoveToId(id, {force_to_top: true}); // GREADER scroll behavior
 					}
 
 				} else if (in_body) {
 					Headlines.toggleUnread(id, 0);
-					Article.cdmMoveToId(id, {force_to_top: true});
 				} else { /* !in body */
 					Article.openInNewWindow(id);
 				}
